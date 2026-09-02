@@ -63,6 +63,11 @@ button { cursor: pointer; }
 }
 .fatal { color: var(--danger); }
 
+.center .slow {
+  margin-top: 14px; font-size: 13px; line-height: 1.6;
+  color: var(--warn);
+}
+
 /* ---------------- 初回設定 ---------------- */
 .setupBox {
   max-width: 560px; margin: 0 auto;
@@ -353,7 +358,7 @@ button.tag.pick[aria-pressed="true"] {
 /* ---------------- 設定のリスト ---------------- */
 .card.rows { padding: 0; overflow: hidden; }
 .row {
-  display: flex; align-items: center; gap: 12px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 14px 16px; min-height: 62px;
   border-bottom: 1px solid var(--border);
 }

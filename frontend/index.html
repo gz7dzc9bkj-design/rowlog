@@ -4,19 +4,24 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>RowLog</title>
-<link rel="manifest" href="manifest.webmanifest?v=1.1.2">
+<link rel="manifest" href="manifest.webmanifest?v=1.2.0">
 <meta name="theme-color" content="#f7f8fa">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="RowLog">
 <link rel="apple-touch-icon" href="icon-180.png">
-<link rel="stylesheet" href="style.css?v=1.1.2">
+<link rel="stylesheet" href="style.css?v=1.2.0">
 </head>
 <body>
 
 <!-- 起動時 -->
-<div id="loading" class="center hidden"><p>読み込んでいます…</p></div>
+<div id="loading" class="center hidden">
+  <div>
+    <p>読み込んでいます…</p>
+    <p class="slow hidden" id="slowNote">みんなが一斉に開くと時間がかかります。<br>そのままお待ちください。</p>
+  </div>
+</div>
 <div id="fatal" class="center fatal hidden"></div>
 
 <!-- 初回設定 -->
@@ -45,6 +50,7 @@
 
   <!-- 今日 -->
   <main id="pane-today">
+    <div class="warnbar hidden" id="clockWarn"></div>
     <div class="warnbar hidden" id="storageWarn">
       この端末は保存ができない設定になっています。Safari の設定で
       「すべてのCookieをブロック」をオフにしてください。このままだと記録が残りません。
@@ -193,6 +199,11 @@
       <div class="row">
         <div class="rowmain"><b>送信待ち</b><span>電波が戻ると自動で送られます</span></div>
         <span class="rowval" id="queueCount">0 件</span>
+        <button type="button" class="rowbtn" id="flushNow">今すぐ送る</button>
+      </div>
+      <div class="row">
+        <div class="rowmain"><b>うまく動かないとき</b><span>読み込み直すとたいてい直ります</span></div>
+        <button type="button" class="rowbtn" id="reloadApp">読み込み直す</button>
       </div>
       <div class="row hidden" id="failedRow">
         <div class="rowmain"><b>送れなかった記録</b><span>主務に見せてください</span></div>
@@ -228,8 +239,8 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="config.js?v=1.1.2"></script>
-<script src="logic.js?v=1.1.2"></script>
-<script src="app.js?v=1.1.2"></script>
+<script src="config.js?v=1.2.0"></script>
+<script src="logic.js?v=1.2.0"></script>
+<script src="app.js?v=1.2.0"></script>
 </body>
 </html>

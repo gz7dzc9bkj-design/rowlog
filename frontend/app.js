@@ -7,6 +7,8 @@
   var K = { me: 'rowlog.me', boot: 'rowlog.boot', queue: 'rowlog.queue', mine: 'rowlog.mine',
             draft: 'rowlog.draft', failed: 'rowlog.failed' };
   var MAX_TRIES = 5;        // これを超えたら諦めて「送れなかった」箱に移す
+  var MAX_QUEUE = 120;      // 送信待ちの上限。これ以上は端末の保存を圧迫する
+  var flushing = false;     // flush の二重起動止め
   var sending = false;      // 「出す」の二重押し止め
 
   var state = {
@@ -43,7 +45,62 @@
     return 'x-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
   }
 
-  /* ---------------- 通信 ---------------- */
+  /* ---------------- 通信 ----------------
+
+     必ず制限時間を付ける。電波の弱い艇庫や、Wi-Fiに繋がっているのに
+     外に出られない状態（学校のネット、コンビニのWi-Fiなど）では、
+     fetch はいつまでも返らない。制限時間が無いと画面が
+     「読み込んでいます…」のまま永久に止まる。
+
+     Apps Script は38人が一斉に叩くと遅い。実測で最後の1人は19秒かかった。
+     読み込みは25秒、送信は30秒まで待つ。 */
+  var TIMEOUT_GET = 25000;
+  var TIMEOUT_POST = 30000;
+
+  function fetchTimeout(url, opts, ms) {
+    opts = opts || {};
+    if (typeof AbortController === 'undefined') {
+      /* AbortController が無い古い端末。せめて時間で打ち切る */
+      return new Promise(function (resolve, reject) {
+        var done = false;
+        var t = setTimeout(function () {
+          if (!done) { done = true; reject(new Error('timeout')); }
+        }, ms);
+        fetch(url, opts).then(function (r) {
+          if (done) return;
+          done = true; clearTimeout(t); resolve(r);
+        }, function (e) {
+          if (done) return;
+          done = true; clearTimeout(t); reject(e);
+        });
+      });
+    }
+    var ac = new AbortController();
+    var timer = setTimeout(function () { ac.abort(); }, ms);
+    opts.signal = ac.signal;
+    return fetch(url, opts).then(function (r) {
+      clearTimeout(timer); return r;
+    }, function (e) {
+      clearTimeout(timer); throw e;
+    });
+  }
+
+  /* Apps Script が混雑や認証で HTML を返すことがある。
+     そのまま r.json() すると読めない例外になり、原因が分からなくなる。
+     JSON でなければ「一時的な失敗」として扱えるよう印を付けて投げる。 */
+  function readJson(r) {
+    return r.text().then(function (t) {
+      try {
+        return JSON.parse(t);
+      } catch (e) {
+        var err = new Error('サーバーがJSONを返しませんでした');
+        err.notJson = true;
+        err.head = String(t).slice(0, 120);
+        throw err;
+      }
+    });
+  }
+
   function api(action, params) {
     var url = CFG.API_URL + (CFG.API_URL.indexOf('?') < 0 ? '?' : '&') + 'action=' + encodeURIComponent(action);
     for (var k in (params || {})) {
@@ -51,32 +108,47 @@
         url += '&' + k + '=' + encodeURIComponent(params[k]);
       }
     }
-    return fetch(url, { method: 'GET' }).then(function (r) { return r.json(); });
+    return fetchTimeout(url, { method: 'GET' }, TIMEOUT_GET).then(readJson);
   }
 
   /* Apps Script はレスポンスヘッダを付けられない。
      text/plain で送ってプリフライト(OPTIONS)自体を起こさないのが定石。 */
   function post(payload) {
-    return fetch(CFG.API_URL, {
+    return fetchTimeout(CFG.API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
-    }).then(function (r) { return r.json(); });
+    }, TIMEOUT_POST).then(readJson);
   }
 
   /* ---------------- 送信キュー（オフライン対応） ---------------- */
   function queue() { return load(K.queue, []); }
   function enqueue(payload) {
     var q = queue();
+    /* 上限を超えたら古いものから諦める。放っておくと localStorage の
+       容量を使い切り、以後どの保存も失敗するようになる。 */
+    if (q.length >= MAX_QUEUE) {
+      var dropped = q.splice(0, q.length - MAX_QUEUE + 1);
+      var fl = failed();
+      dropped.forEach(function (d) {
+        fl.push({ payload: d, error: '送信待ちが溜まりすぎたため保留', at: new Date().toISOString() });
+      });
+      save(K.failed, fl);
+    }
     q.push(payload);
     var ok = save(K.queue, q);
     paintQueue();
     return ok;
   }
   function failed() { return load(K.failed, []); }
+  /* flush は「出す」ボタン・online イベント・画面復帰の3か所から呼ばれる。
+     同時に走ると同じ1件を2回送ってしまう（client_id で弾かれるので
+     データは壊れないが、混雑時に無駄な往復が増える）。 */
   function flush() {
     var q = queue();
     if (!q.length || !CFG.API_URL) return Promise.resolve(0);
+    if (flushing) return Promise.resolve(0);
+    flushing = true;
     var sent = 0;
     function step() {
       var cur = queue();
@@ -113,9 +185,20 @@
           return step();
         }
         return sent;
-      }).catch(function () { return sent; });
+      }).catch(function (e) {
+        /* 通信の失敗・制限時間切れ・JSONでない返事。どれも一時的なものとして
+           キューに残す。ここで消すと記録が黙って消える。 */
+        if (e && e.notJson) console.warn('JSONでない返事:', e.head);
+        return sent;
+      });
     }
-    return step();
+    return step().then(function (n) {
+      flushing = false;
+      return n;
+    }, function (e) {
+      flushing = false;
+      throw e;
+    });
   }
   function paintQueue() {
     var n = queue().length;
@@ -219,23 +302,61 @@
     if (state.boot && state.me) { start(); }
     else { document.getElementById('loading').classList.remove('hidden'); }
 
+    /* 38人が一斉に開くと最後の人は20秒近く待たされる（実測）。
+       黙って待たせると壊れたと思われるので、途中で状況を出す。 */
+    var slow = setTimeout(function () {
+      var e = document.getElementById('slowNote');
+      if (e) e.classList.remove('hidden');
+    }, 8000);
+
     api('bootstrap').then(function (r) {
       if (!r || !r.ok) throw new Error(r && r.error ? r.error : '読み込みに失敗');
+      clearTimeout(slow);
       state.boot = r;
       save(K.boot, r);
       document.getElementById('loading').classList.add('hidden');
+      var sn = document.getElementById('slowNote');
+      if (sn) sn.classList.add('hidden');
+      checkClock(r.today);
       if (!state.me) { showSetup(); } else { start(); }
       return flush();
     }).then(function () {
       if (state.me) refreshMine();
     }).catch(function (e) {
+      clearTimeout(slow);
       document.getElementById('loading').classList.add('hidden');
-      if (state.boot && state.me) { start(); }   // 圏外でもキャッシュで動かす
-      else showError('つながりませんでした。電波のあるところでもう一度開いてください。' );
+      var sn2 = document.getElementById('slowNote');
+      if (sn2) sn2.classList.add('hidden');
+      if (state.boot && state.me) {
+        start();                      // 圏外でもキャッシュで動かす
+        toast('つながらないので、前に読み込んだ内容で動いています');
+      } else {
+        showError('つながりませんでした。電波のあるところでもう一度開いてください。');
+      }
       console.warn(e);
     });
 
     window.addEventListener('online', function () { flush(); });
+    /* iOS はホーム画面から戻したとき load が起きない。
+       画面が表に出たタイミングでも送信待ちを片づける。 */
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') flush();
+    });
+    window.addEventListener('pageshow', function () { flush(); });
+  }
+
+  /* 端末の日付がずれていると、違う日の記録として保存される。
+     サーバーが返す今日と突き合わせて、ずれていたら知らせる。
+     時差ではなく端末の時計そのものが狂っている場合を捕まえる。 */
+  function checkClock(serverToday) {
+    var e = document.getElementById('clockWarn');
+    if (!e || !serverToday) return;
+    var mine = todayStr();
+    if (mine === serverToday) { e.classList.add('hidden'); return; }
+    e.textContent = 'この端末の日付は ' + mine + ' ですが、実際は ' + serverToday
+      + ' です。日付がずれたまま出すと違う日の記録になります。'
+      + '端末の日付設定を直してから出してください。';
+    e.classList.remove('hidden');
   }
 
   function showError(msg) {
@@ -447,6 +568,10 @@
 
   /* --- メニュー選択 --- */
   function openPicker() {
+    if (!state.boot || !(state.boot.menu || []).length) {
+      toast('メニューをまだ読み込めていません。電波のあるところで開いてください');
+      return;
+    }
     var sheet = document.getElementById('picker');
     var body = document.getElementById('pickerBody');
     body.innerHTML = '';
@@ -731,6 +856,23 @@
     document.getElementById('discardDraft').onclick = function () {
       clearDraft(state.date);
       openDate(state.date);
+    };
+    /* ホーム画面から開いたPWAにはアドレスバーも更新ボタンも無い。
+       画面が壊れたときに部員が自力で直せる逃げ道を用意する。 */
+    document.getElementById('reloadApp').onclick = function () {
+      if (queue().length && !confirm('送信待ちが ' + queue().length
+          + ' 件あります。読み込み直しても消えませんが、先に「今すぐ送る」を試しますか？\n\n'
+          + 'OK を押すと読み込み直します。')) return;
+      location.reload();
+    };
+    document.getElementById('flushNow').onclick = function () {
+      var n = queue().length;
+      if (!n) { toast('送信待ちはありません'); return; }
+      toast('送っています…');
+      flush().then(function () {
+        var left = queue().length;
+        toast(left ? ('まだ ' + left + ' 件残っています') : 'ぜんぶ送れました');
+      });
     };
     // 画面を離れるときにも念のため残す
     document.addEventListener('visibilitychange', function () {

@@ -197,8 +197,14 @@ function submit(body) {
      以前は理由が分からず、一時的なサーバー側の失敗でも記録を捨てていた。 */
   if (v.length) return { ok: false, kind: 'validation', error: v.join(' / ') };
 
+  /* 練習直後は38人がほぼ同時に送る。取れなかったら「混雑」として返し、
+     フロントに再送させる。捨てさせない（kind を付けないのが肝心）。 */
   var lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+  try {
+    lock.waitLock(30000);
+  } catch (e) {
+    return { ok: false, kind: 'busy', error: '混み合っています。あとで自動的に送り直します' };
+  }
   try {
     var sh = sheet(SHEETS.answers);
     if (hasClientId(sh, SHEETS.answers.head, body.client_id)) {
@@ -248,7 +254,11 @@ function savePlan(body) {
   if (!body.client_id) return { ok: false, kind: 'validation', error: 'client_id が無い' };
 
   var lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+  try {
+    lock.waitLock(30000);
+  } catch (e) {
+    return { ok: false, kind: 'busy', error: '混み合っています。あとで自動的に送り直します' };
+  }
   try {
     var sh = sheet(SHEETS.plans);
     var head = SHEETS.plans.head;
@@ -369,12 +379,27 @@ function hasClientId(sh, head, clientId) {
   var col = head.indexOf('client_id') + 1;
   var last = sh.getLastRow();
   if (col < 1 || last < 2) return false;
-  var vals = sh.getRange(2, col, last - 1, 1).getValues();
   var target = String(clientId).trim();
-  for (var i = 0; i < vals.length; i++) {
-    if (String(vals[i][0]).trim() === target) return true;
+  if (!target) return false;
+
+  /* TextFinder はシート側で探すので、列を全部 JavaScript に読み込まない。
+     10月には回答が1,700行を超える。全件読みをロックの中でやると、
+     練習直後に38人が一斉に送ったとき後ろの人がロック待ちで弾かれる。 */
+  try {
+    var found = sh.getRange(2, col, last - 1, 1)
+      .createTextFinder(target)
+      .matchEntireCell(true)
+      .matchCase(true)
+      .findNext();
+    return found !== null;
+  } catch (e) {
+    /* TextFinder が使えない環境向けの保険。遅いが正しい。 */
+    var vals = sh.getRange(2, col, last - 1, 1).getValues();
+    for (var i = 0; i < vals.length; i++) {
+      if (String(vals[i][0]).trim() === target) return true;
+    }
+    return false;
   }
-  return false;
 }
 
 /* "30001, 90009" / "30001,90009" / 数値 のどれでも配列にする。
