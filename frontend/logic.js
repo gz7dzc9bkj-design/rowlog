@@ -94,6 +94,7 @@
     if (STATUS.indexOf(rec.status) < 0) e.push('参加状態が不正');
     if (asksLoad(rec.status)) {
       if (!inRange('minutes', rec.minutes)) e.push('練習時間が不正');
+      else if (Number(rec.minutes) % 1 !== 0) e.push('練習時間は整数で入れてください');
       if (rec.rpe === null || rec.rpe === undefined || rec.rpe === '' || !inRange('rpe', rec.rpe)) e.push('RPEが未入力');
       if (COMPLETION.indexOf(rec.completion) < 0) e.push('完了度が不正');
     } else {
@@ -103,6 +104,13 @@
     }
     if (rec.note && String(rec.note).length > 200) e.push('ひとことが200字を超えている');
     if (!rec.client_id) e.push('client_idが無い');
+    /* エルゴの値も送信を止める。以前は赤字の警告を出すだけで、そのまま出せていた。 */
+    e = e.concat(ergWarnings({
+      distance: rec.erg_distance,
+      split: rec.erg_split,
+      rate: rec.erg_rate,
+      drag: rec.erg_drag
+    }));
     return e;
   }
 

@@ -4,7 +4,10 @@
 
   var L = window.RowLogLogic;
   var CFG = window.ROWLOG_CONFIG;
-  var K = { me: 'rowlog.me', boot: 'rowlog.boot', queue: 'rowlog.queue', mine: 'rowlog.mine' };
+  var K = { me: 'rowlog.me', boot: 'rowlog.boot', queue: 'rowlog.queue', mine: 'rowlog.mine',
+            draft: 'rowlog.draft', failed: 'rowlog.failed' };
+  var MAX_TRIES = 5;        // これを超えたら諦めて「送れなかった」箱に移す
+  var sending = false;      // 「出す」の二重押し止め
 
   var state = {
     boot: null,        // {roster, menu, calendar, today}
@@ -22,8 +25,19 @@
     try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }
     catch (e) { return d; }
   }
+  /* 保存の成否を必ず返す。以前は例外を握りつぶしていたので、
+     Cookieを全部ブロックしたiPhoneでは何も保存されないのに
+     「出しました」とだけ出て、記録が丸ごと消えていた。 */
   function save(k, v) {
-    try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {}
+    try { localStorage.setItem(k, JSON.stringify(v)); return true; }
+    catch (e) { console.warn('保存できません', k, e); return false; }
+  }
+  function storageWorks() {
+    try {
+      localStorage.setItem('rowlog.probe', '1');
+      localStorage.removeItem('rowlog.probe');
+      return true;
+    } catch (e) { return false; }
   }
   function uuid() {
     return 'x-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
@@ -55,9 +69,11 @@
   function enqueue(payload) {
     var q = queue();
     q.push(payload);
-    save(K.queue, q);
+    var ok = save(K.queue, q);
     paintQueue();
+    return ok;
   }
+  function failed() { return load(K.failed, []); }
   function flush() {
     var q = queue();
     if (!q.length || !CFG.API_URL) return Promise.resolve(0);
@@ -74,12 +90,25 @@
           paintQueue();
           return step();
         }
-        // 検証で弾かれた分は再送しても通らないので捨てる（無限リトライを防ぐ）
+        /* 以前はここで ok:false を理由を問わず捨てていた。ロック取得の
+           タイムアウトのような一時的なサーバー側の失敗でも記録が消え、
+           画面は「送信待ち0件」になって本人は気づけなかった。
+           検証エラー(kind:'validation')だけ捨て、それ以外は回数を数えて粘る。 */
         if (res && res.ok === false) {
           var r2 = queue();
-          var bad = r2.shift();
+          var bad = r2[0];
+          var giveUp = (res.kind === 'validation');
+          if (!giveUp) {
+            bad._tries = (bad._tries || 0) + 1;
+            if (bad._tries < MAX_TRIES) { save(K.queue, r2); paintQueue(); return sent; }
+            giveUp = true;
+          }
+          r2.shift();
           save(K.queue, r2);
-          console.warn('送信できないため破棄:', res.error, bad);
+          var fl = failed();
+          fl.push({ payload: bad, error: res.error || '', at: new Date().toISOString() });
+          save(K.failed, fl);
+          console.warn('送れないため保留にしました:', res.error, bad);
           paintQueue();
           return step();
         }
@@ -94,6 +123,62 @@
     if (e) e.textContent = n + ' 件';
     var b = document.getElementById('queueBadge');
     if (b) b.classList.toggle('hidden', n === 0);
+    var f = failed().length;
+    var fe = document.getElementById('failedRow');
+    if (fe) {
+      fe.classList.toggle('hidden', f === 0);
+      var fc = document.getElementById('failedCount');
+      if (fc) fc.textContent = f + ' 件';
+    }
+  }
+
+  /* ---------------- 下書き ----------------
+     RPEは「練習が終わって15〜30分後に答える」運用なので、入力の途中で
+     一度アプリを離れるのが普通。iPhone Safari は裏に回ったタブを勝手に
+     読み込み直すため、下書きが無いと毎回ゼロからやり直しになっていた。 */
+  function drafts() { return load(K.draft, {}); }
+  function saveDraft() {
+    if (!state.form || !state.date) return;
+    var d = drafts();
+    d[state.date] = {
+      form: state.form,
+      minutes: valOf('minutes'),
+      note: valOf('note'),
+      erg: {
+        dist: valOf('dist'), split: valOf('split'), rate: valOf('rate'),
+        drag: valOf('drag'), machine: valOf('machine')
+      },
+      at: Date.now()
+    };
+    // 古い下書きを溜めない。30日より前は捨てる
+    var limit = Date.now() - 30 * 24 * 3600 * 1000;
+    Object.keys(d).forEach(function (k) { if (!d[k].at || d[k].at < limit) delete d[k]; });
+    save(K.draft, d);
+    paintDraftNote();
+  }
+  function clearDraft(date) {
+    var d = drafts();
+    if (d[date]) { delete d[date]; save(K.draft, d); }
+    paintDraftNote();
+  }
+  function applyDraft(date) {
+    var d = drafts()[date];
+    if (!d || !d.form) return false;
+    state.form = d.form;
+    setVal('minutes', d.minutes);
+    setVal('note', d.note);
+    var e = d.erg || {};
+    setVal('dist', e.dist); setVal('split', e.split); setVal('rate', e.rate);
+    setVal('drag', e.drag); setVal('machine', e.machine);
+    return true;
+  }
+  function valOf(id) { var e = document.getElementById(id); return e ? e.value : ''; }
+  function setVal(id, v) { var e = document.getElementById(id); if (e) e.value = (v == null ? '' : v); }
+  function paintDraftNote() {
+    var n = document.getElementById('draftNote');
+    if (!n) return;
+    var has = !!drafts()[state.date];
+    n.classList.toggle('hidden', !has);
   }
 
   /* ---------------- 日付 ---------------- */
@@ -122,6 +207,10 @@
     state.calYm = { y: toDate(state.date).getFullYear(), m: toDate(state.date).getMonth() + 1 };
 
     paintQueue();
+    if (!storageWorks()) {
+      var w = document.getElementById('storageWarn');
+      if (w) w.classList.remove('hidden');
+    }
     if (!CFG.API_URL) {
       showError('繋ぎ先が設定されていません。frontend/config.js の API_URL に Apps Script の URL を入れてください。');
       return;
@@ -254,6 +343,10 @@
       document.getElementById(id).value = '';
     });
     document.getElementById('note').value = state.planMode && state.mine.plans[d] ? state.mine.plans[d].note : '';
+    applyDraft(d);          // 途中まで入れて離れた分を戻す
+    clearErrors();
+    paintDraftNote();
+    paintNoteCount();
     paintAll();
     document.getElementById('planOnly').classList.toggle('hidden', !state.planMode);
     document.getElementById('actualOnly').classList.toggle('hidden', state.planMode);
@@ -294,7 +387,7 @@
     }
     w.addEventListener('click', function (e) {
       var t = e.target.closest('button'); if (!t) return;
-      state.form.rpe = Number(t.dataset.v); paintRpeSel();
+      state.form.rpe = Number(t.dataset.v); paintRpeSel(); clearErrors(); saveDraft();
     });
   }
   function paintRpeSel() {
@@ -463,6 +556,9 @@
 
   /* --- 送信 --- */
   function doSubmit() {
+    /* 連打止め。ボタンはタブバーのすぐ上にあり、片手だと二度押ししやすい。
+       client_id は毎回新しく振るので、押した回数だけ別の行が増えていた。 */
+    if (sending) return;
     var f = state.form;
     var payload;
 
@@ -490,10 +586,22 @@
         client_id: uuid(), app_version: CFG.VERSION
       };
       var errs = L.validate(payload);
-      if (errs.length) { alert('出せません：\n・' + errs.join('\n・')); return; }
+      if (errs.length) { showErrors(errs); return; }
     }
 
-    enqueue(payload);
+    /* キューに入らなければ何も起きていない。以前はここを確認せず
+       必ず成功トーストを出していたので、保存できない端末では
+       「出したつもり」のまま記録が存在しない状態になっていた。 */
+    if (!enqueue(payload)) {
+      alert('この端末に保存できないため、出せませんでした。\n\n'
+          + 'Safari の 設定 →「サイト越えトラッキングを防ぐ」や\n'
+          + '「すべてのCookieをブロック」がオンだと保存できません。\n'
+          + 'オフにしてから、もう一度出してください。\n\n'
+          + '入力した内容はこの画面に残してあります。');
+      return;
+    }
+
+    lockSubmit();
     // 送信の成否を待たせない。キューに入れた時点で完了扱いにする。
     if (state.planMode) {
       state.mine.plans[state.date] = { block_ids: payload.block_ids, note: payload.note };
@@ -501,9 +609,69 @@
       state.mine.answers[state.date] = { status: payload.status, srpe: L.srpe(payload.minutes, payload.rpe) };
     }
     save(K.mine, state.mine);
+    clearDraft(state.date);
     buildCalendar();
-    toast(state.planMode ? '予定を出しました' : '出しました。おつかれさま');
-    flush();
+
+    /* オフラインのときに成功と同じ文言を出すと、艇庫で送れていないことに
+       気づけない。溜まっただけなのか送れたのかを分けて伝える。 */
+    var offline = (navigator.onLine === false);
+    if (offline) {
+      toast('電波が無いので送信待ちに入れました。つながると自動で送られます');
+    } else {
+      toast(state.planMode ? '予定を出しました' : '出しました。おつかれさま');
+    }
+    flush().then(function () {
+      if (!offline && queue().length) {
+        toast('まだ送れていません。送信待ちに入れました');
+      }
+    });
+  }
+
+  /* 押した直後の数秒だけ止める。出し直し自体は仕様なので禁止しない。 */
+  function lockSubmit() {
+    sending = true;
+    var b = document.getElementById('submit');
+    if (b) b.disabled = true;
+    setTimeout(function () {
+      sending = false;
+      if (b) b.disabled = false;
+    }, 2500);
+  }
+
+  /* どの欄が悪いのかを画面で示す。alert だけだと直す場所が分からない。 */
+  function showErrors(errs) {
+    var box = document.getElementById('formErr');
+    if (box) {
+      box.innerHTML = '<b>出せません</b><ul><li>' + errs.map(esc).join('</li><li>') + '</li></ul>';
+      box.classList.remove('hidden');
+      box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    var bad = {
+      minutes: /練習時間/.test(errs.join('')),
+      rpe: /RPE/.test(errs.join(''))
+    };
+    var mi = document.getElementById('minutes');
+    if (mi) mi.classList.toggle('bad', bad.minutes);
+    var rp = document.getElementById('rpe');
+    if (rp) rp.classList.toggle('bad', bad.rpe);
+  }
+  function clearErrors() {
+    var box = document.getElementById('formErr');
+    if (box) box.classList.add('hidden');
+    var mi = document.getElementById('minutes');
+    if (mi) mi.classList.remove('bad');
+    var rp = document.getElementById('rpe');
+    if (rp) rp.classList.remove('bad');
+  }
+
+  /* 200字で無言に切られていたので、残り字数を見せて切る前に気づけるようにする */
+  function paintNoteCount() {
+    var t = document.getElementById('note');
+    var c = document.getElementById('noteCount');
+    if (!t || !c) return;
+    var n = t.value.length;
+    c.textContent = n + ' / 200';
+    c.classList.toggle('over', n > 200);
   }
 
   function toast(msg) {
@@ -525,7 +693,9 @@
         if (id === 'status') state.form.status = v;
         if (id === 'completion') state.form.completion = v;
         if (id === 'didErg') state.form.didErg = (v === 'はい');
+        clearErrors();
         paintAll();
+        saveDraft();
       });
     });
     document.getElementById('addBlock').onclick = openPicker;
@@ -545,6 +715,24 @@
     ['dist', 'split', 'rate', 'drag'].forEach(function (id) {
       document.getElementById(id).addEventListener('input', recheckErg);
     });
+    // 入力のたびに下書きを残す
+    ['minutes', 'note', 'dist', 'split', 'rate', 'drag', 'machine'].forEach(function (id) {
+      var e = document.getElementById(id);
+      if (e) e.addEventListener('input', function () {
+        if (id === 'note') paintNoteCount();
+        if (id === 'minutes') clearErrors();
+        saveDraft();
+      });
+    });
+    document.getElementById('discardDraft').onclick = function () {
+      clearDraft(state.date);
+      openDate(state.date);
+    };
+    // 画面を離れるときにも念のため残す
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'hidden') saveDraft();
+    });
+    window.addEventListener('pagehide', saveDraft);
   }
   function shiftMonth(n) {
     var m = state.calYm.m + n, y = state.calYm.y;
@@ -552,6 +740,16 @@
     if (m > 12) { m = 1; y++; }
     state.calYm = { y: y, m: m };
     buildCalendar();
+  }
+
+  /* 電波の無い艇庫でもアプリが開けるようにする。
+     network-first なので、通信できるときは必ず新しいコードを取りに行く。 */
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').catch(function (e) {
+        console.warn('Service Worker を登録できません', e);
+      });
+    });
   }
 
   wire();
