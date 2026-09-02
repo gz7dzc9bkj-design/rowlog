@@ -56,18 +56,32 @@
 - 既存の部活マネージャー（clubmanag-4ysnkpfp.manus.space）を書き換えない。読むだけ。RowLog 稼働後に引退させる
 - Tailscale・自宅PC常駐を使わない（38人に配れないため）
 
-## 環境の罠（このPC固有）
+## 作業環境（2026-09-02 に WSL Ubuntu へ移行）
 
-- **Python の出力**: 冒頭に `sys.stdout.reconfigure(encoding="utf-8")`。無いと cp932 で落ちる
-- **pip**: `--trusted-host pypi.org --trusted-host files.pythonhosted.org` を付ける
-- **PowerShell で日本語**: 先頭に `[Console]::OutputEncoding = [Text.Encoding]::UTF8`
-- **ファイルI/O**: `open(..., encoding="utf-8")` を常に明示
-- **LibreOffice は未導入**。Excel/Word の再計算・PDF化は COM 経由で行う
-- **poppler 未導入**。PDFの画像化は PyMuPDF を使う
-- **OneDrive のファイルが読めない**ときは同期クライアントが止まっている。
-  `Start-Process "C:\Program Files\Microsoft OneDrive\OneDrive.exe"` してから Copy-Item
-- **ブラウザ検証**: screenshot はタイムアウトすることがある。read_page / javascript_tool / get_page_text で確認する
-- **index.html はキャッシュされる**。変更が反映されないときはまず `location.reload(true)`
+正本は **WSL Ubuntu の `~/dev/rowlog`**。Windows 側の
+`C:\Users\ryu10\Claude-Workspace\projects\rowlog` は移行前の残骸なので触らない。
+
+- リポジトリ: https://github.com/gz7dzc9bkj-design/rowlog （public）
+- 公開URL: https://gz7dzc9bkj-design.github.io/rowlog/
+- `main` に push すると `.github/workflows/pages.yml` が `frontend/` を Pages に出す
+- 検証は `python3 verify.py`（WSL 側で ALL PASS を確認済み）
+
+### 置いてはいけないもの
+
+- `tools/surnames.local.txt` は部員の姓リスト。`.gitignore` 済み。**絶対に push しない**
+- 氏名の正本はスプレッドシートの `名簿` シートと
+  `Claude-Workspace\box\2026-08-31-研究用ID対応表.xlsx` だけ
+
+### 罠
+
+- **ブラウザ検証は Windows 側の Chrome**。WSL からは screenshot が撮れない
+- **Apps Script の編集は必ずスプレッドシートの「拡張機能」メニューから開く**。
+  `authuser=1` のURLを直接叩くと「ファイルを開くことができません」になる
+- **Apps Script のデプロイダイアログでレンダラが固まる**ことがある。
+  固まったらタブを作り直す（コードは保存済みなら失われない）
+- **Apps Script の関数ドロップダウンは下までスクロールしてからクリックする**。
+  スクロールせずに座標クリックするとエディタ本文を触ってしまう
+- **スマホは js/css を強くキャッシュする**。配信時は `?v=` と `config.js` の VERSION を上げる
 
 ## ユーザーの流儀
 
