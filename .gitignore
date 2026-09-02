@@ -1,0 +1,6 @@
+# 部員の姓リスト。公開リポジトリに入れない。
+tools/surnames.local.txt
+
+__pycache__/
+*.pyc
+.DS_Store

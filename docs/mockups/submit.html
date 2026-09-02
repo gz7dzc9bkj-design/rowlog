@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RowLog 提出画面</title>
+<style>
+  :root{
+    --bg:#f2f4f7; --card:#ffffff; --ink:#141922; --sub:#68717f;
+    --line:#e2e6ec; --pill:#eceff4; --accent:#1f3864; --on-accent:#ffffff;
+    --warn:#b8202a; --ok:#1b6f3a; --off:#8a94a3;
+    --race:#8a5a12; --race-bg:#fff6e8;
+    --flag-bg:#fff6e8; --flag-line:#eec99a; --flag-ink:#7d5410;
+    --shadow:0 1px 2px rgba(20,25,34,.05), 0 8px 24px rgba(20,25,34,.05);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#10141a; --card:#191f28; --ink:#e7ecf3; --sub:#96a0ae;
+      --line:#2a323d; --pill:#232b36; --accent:#8fb0dd; --on-accent:#0e1319;
+      --warn:#ff9a92; --ok:#79d6a0; --off:#707b8a;
+      --race:#e8c98b; --race-bg:#2a2416;
+      --flag-bg:#2a2416; --flag-line:#5b4a24; --flag-ink:#e8c98b;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#10141a; --card:#191f28; --ink:#e7ecf3; --sub:#96a0ae;
+    --line:#2a323d; --pill:#232b36; --accent:#8fb0dd; --on-accent:#0e1319;
+    --warn:#ff9a92; --ok:#79d6a0; --off:#707b8a; --race:#e8c98b; --race-bg:#2a2416;
+    --flag-bg:#2a2416; --flag-line:#5b4a24; --flag-ink:#e8c98b;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+  }
+
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html{background:var(--bg)}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.6 "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",system-ui,sans-serif;
+    padding-bottom:150px;
+  }
+  .shell{max-width:560px; margin:0 auto; min-height:100vh}
+
+  header{
+    position:sticky; top:0; z-index:5; background:var(--accent); color:var(--on-accent);
+    padding:14px 16px; display:flex; align-items:baseline; gap:10px;
+  }
+  header .d{font-size:19px; font-weight:700}
+  header .id{margin-left:auto; font-size:13px; opacity:.85; font-variant-numeric:tabular-nums}
+  header button{
+    background:color-mix(in srgb, var(--on-accent) 18%, transparent); color:var(--on-accent);
+    border:0; border-radius:8px; padding:6px 10px; font:inherit; font-size:13px; cursor:pointer;
+  }
+  header button:focus-visible{outline:2px solid var(--on-accent); outline-offset:2px}
+
+  main{padding:14px 14px 0; display:flex; flex-direction:column; gap:12px}
+
+  .flag{background:var(--flag-bg); border:1px solid var(--flag-line); color:var(--flag-ink);
+    border-radius:10px; padding:10px 13px; font-size:13px; margin:0}
+  .flag b{font-weight:700}
+
+  .card{background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:14px; box-shadow:var(--shadow)}
+  .lbl{font-size:14px; font-weight:700; margin:0 0 9px}
+  .lbl .opt{font-weight:400; color:var(--sub)}
+  .hint{font-size:12.5px; color:var(--sub); margin:7px 0 0}
+
+  /* 今日の予定バナー */
+  .plan{display:flex; gap:12px; align-items:flex-start}
+  .plan .kind{
+    flex:0 0 auto; border-radius:10px; padding:8px 12px; font-size:13px; font-weight:700;
+    background:var(--accent); color:var(--on-accent);
+  }
+  .plan .kind.off{background:var(--pill); color:var(--off); border:1px solid var(--line)}
+  .plan .kind.race{background:var(--race-bg); color:var(--race); border:1px solid var(--flag-line)}
+  .plan .body{flex:1 1 auto; min-width:0}
+  .plan .body p{margin:0; font-size:14px}
+  .plan .body .menus{margin-top:6px; font-size:13px; color:var(--sub)}
+
+  .seg{display:grid; grid-template-columns:repeat(4,1fr); gap:8px}
+  .seg.two{grid-template-columns:1fr 1fr}
+  .seg button{
+    font:inherit; font-size:13.5px; padding:12px 2px; border-radius:10px; cursor:pointer;
+    border:1px solid var(--line); background:var(--pill); color:var(--ink);
+    text-wrap:balance; line-height:1.25;
+  }
+  .seg button[aria-pressed="true"]{background:var(--accent); color:var(--on-accent);
+    border-color:var(--accent); font-weight:700}
+  .seg button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+
+  .q{background:var(--pill); border-left:4px solid var(--accent); border-radius:0 8px 8px 0;
+    padding:10px 12px; font-size:14px; font-weight:700; margin:0 0 11px; text-wrap:balance}
+  .rpe{display:grid; grid-template-columns:repeat(6,1fr); gap:7px}
+  .rpe button{
+    font:inherit; font-size:17px; font-weight:700; padding:13px 0; border-radius:10px; cursor:pointer;
+    border:1px solid var(--line); background:var(--pill); color:var(--ink);
+    font-variant-numeric:tabular-nums;
+  }
+  .rpe button[aria-pressed="true"]{background:var(--accent); color:var(--on-accent); border-color:var(--accent)}
+  .rpe button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  .rpelabel{margin:11px 0 0; font-size:15px; font-weight:700; color:var(--accent); min-height:24px}
+
+  .field{display:flex; gap:7px; align-items:center}
+  .num{font:inherit; font-size:17px; padding:12px; border:1px solid var(--line); border-radius:10px;
+    background:var(--card); color:var(--ink); width:110px; text-align:right; font-variant-numeric:tabular-nums}
+  .num:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+  .unit{font-size:13.5px; color:var(--sub)}
+
+  .tags{display:flex; flex-wrap:wrap; gap:7px}
+  .tag{background:var(--pill); border:1px solid var(--line); border-radius:999px;
+    padding:7px 12px; font-size:13px; display:inline-flex; gap:8px; align-items:center}
+  .tag .x{color:var(--sub)}
+  .tag[data-planned="1"]{border-color:var(--accent)}
+  .addbtn{font:inherit; font-size:14px; padding:10px 15px; border-radius:10px; cursor:pointer;
+    border:1px dashed var(--sub); background:transparent; color:var(--accent); font-weight:700}
+  .photo{width:100%; padding:14px; border-radius:10px; cursor:pointer; border:1px dashed var(--sub);
+    background:transparent; color:var(--accent); font:inherit; font-size:15px; font-weight:700}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:11px}
+  .grid2 .num{width:100%}
+  textarea{font:inherit; font-size:15px; width:100%; border:1px solid var(--line); border-radius:10px;
+    padding:10px; resize:vertical; min-height:58px; background:var(--card); color:var(--ink)}
+  textarea:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+
+  /* カレンダー */
+  .calhead{display:flex; align-items:center; gap:10px; margin-bottom:10px}
+  .calhead .m{font-size:17px; font-weight:700}
+  .calhead button{margin-left:auto; font:inherit; font-size:13px; padding:6px 10px;
+    border-radius:8px; border:1px solid var(--line); background:var(--pill); color:var(--ink); cursor:pointer}
+  .cal{display:grid; grid-template-columns:repeat(7,1fr); gap:5px}
+  .cal .wd{text-align:center; font-size:11.5px; color:var(--sub); padding-bottom:2px}
+  .cal .wd.sun{color:var(--warn)}
+  .cal .wd.sat{color:var(--accent)}
+  .day{
+    aspect-ratio:1/1.12; border:1px solid var(--line); border-radius:9px; background:var(--card);
+    display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
+    padding:4px 2px 3px; font-size:13px; font-variant-numeric:tabular-nums; cursor:pointer;
+  }
+  .day.blank{border:0; background:transparent; cursor:default}
+  .day.off{background:var(--pill); color:var(--off)}
+  .day.race{background:var(--race-bg); border-color:var(--flag-line)}
+  .day.today{outline:2px solid var(--accent); outline-offset:-2px}
+  .day .n{font-weight:600; line-height:1.2}
+  .day .mk{font-size:15px; line-height:1; margin-top:auto; padding-bottom:1px}
+  .mk.done{color:var(--ok)}
+  .mk.miss{color:var(--warn)}
+  .mk.rest{color:var(--off)}
+  .legend{display:flex; flex-wrap:wrap; gap:12px; margin-top:12px; font-size:12.5px; color:var(--sub)}
+  .legend b{color:var(--ink); font-weight:600}
+
+  /* みんな */
+  .people{display:grid; grid-template-columns:repeat(auto-fill,minmax(74px,1fr)); gap:7px}
+  .p{
+    border:1px solid var(--line); border-radius:9px; background:var(--card);
+    padding:8px 4px; text-align:center; font-size:12.5px; font-variant-numeric:tabular-nums;
+  }
+  .p.done{border-color:var(--ok)}
+  .p.miss{border-color:var(--warn); background:color-mix(in srgb, var(--warn) 8%, var(--card))}
+  .p .s{display:block; font-size:15px; margin-top:2px}
+  .stat{display:flex; gap:10px; margin-bottom:12px}
+  .stat div{flex:1; background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:11px; text-align:center}
+  .stat .v{font-size:24px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1.2}
+  .stat .k{font-size:12px; color:var(--sub)}
+
+  /* タブバー */
+  .bar{position:fixed; left:0; right:0; bottom:0; z-index:6;
+    background:linear-gradient(180deg, transparent 0%, var(--bg) 30%); padding-top:16px}
+  .bar .in{max-width:560px; margin:0 auto; padding:0 14px 14px}
+  .submit{width:100%; padding:17px; border:0; border-radius:14px; cursor:pointer;
+    background:var(--accent); color:var(--on-accent); font:inherit; font-size:18px; font-weight:700;
+    margin-bottom:10px}
+  .submit:focus-visible{outline:2px solid var(--ink); outline-offset:2px}
+  .tabs{display:grid; grid-template-columns:repeat(4,1fr); gap:6px;
+    background:var(--card); border:1px solid var(--line); border-radius:14px; padding:5px;
+    box-shadow:var(--shadow)}
+  .tabs button{font:inherit; font-size:12.5px; padding:9px 2px; border-radius:10px; cursor:pointer;
+    border:0; background:transparent; color:var(--sub); font-weight:600}
+  .tabs button[aria-selected="true"]{background:var(--accent); color:var(--on-accent)}
+  .tabs button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+
+  .hidden{display:none}
+  @media (prefers-reduced-motion: no-preference){
+    .seg button,.rpe button,.submit,.tabs button{transition:background-color .12s ease,color .12s ease,border-color .12s ease}
+  }
+</style>
+
+<div class="shell">
+  <header>
+    <div class="d" id="hd">9月8日（火）</div>
+    <button type="button" id="hbtn">日付を変える</button>
+    <div class="id">C22</div>
+  </header>
+
+  <!-- ========== 今日 ========== -->
+  <main id="pane-today">
+    <p class="flag"><b>見た目の確認用です。</b>押しても送信されません。</p>
+
+    <section class="card">
+      <div class="plan">
+        <div class="kind">練習</div>
+        <div class="body">
+          <p><b>20分エルゴ（1回目）</b></p>
+          <p class="menus">予定：ウォーミングアップ ／ 20分（b1でMAX）／ エルゴダウンとマットダウン</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <p class="lbl">今日は？</p>
+      <div class="seg" id="status">
+        <button type="button" aria-pressed="true">実施</button>
+        <button type="button" aria-pressed="false">一部実施</button>
+        <button type="button" aria-pressed="false">欠席</button>
+        <button type="button" aria-pressed="false">休養</button>
+      </div>
+    </section>
+
+    <div id="loadBlock" style="display:flex; flex-direction:column; gap:12px">
+      <section class="card">
+        <p class="lbl">練習時間</p>
+        <div class="field">
+          <input class="num" id="minutes" type="number" inputmode="numeric" value="95" aria-label="練習時間（分）">
+          <span class="unit">分</span>
+        </div>
+        <p class="hint">アップとダウンを含めた実際の時間</p>
+      </section>
+
+      <section class="card">
+        <p class="lbl">きつさ</p>
+        <p class="q" id="rpeQuestion"></p>
+        <div class="rpe" id="rpe"></div>
+        <p class="rpelabel" id="rpeLabel">&nbsp;</p>
+        <p class="hint">練習が終わって15〜30分後に答える</p>
+      </section>
+
+      <section class="card">
+        <p class="lbl">やったメニュー</p>
+        <div class="tags">
+          <span class="tag" data-planned="1">ウォーミングアップ<span class="x">×</span></span>
+          <span class="tag" data-planned="1">20分（b1でMAX）<span class="x">×</span></span>
+          <span class="tag" data-planned="1">エルゴダウンとマットダウン<span class="x">×</span></span>
+        </div>
+        <div class="tags" style="margin-top:9px"><button type="button" class="addbtn">＋ 足す</button></div>
+        <p class="hint">予定のメニューが入っています。違うことをしたら消して足してください。</p>
+      </section>
+
+      <section class="card">
+        <p class="lbl">計画どおりできた？</p>
+        <div class="seg" id="completion">
+          <button type="button" aria-pressed="true">計画どおり</button>
+          <button type="button" aria-pressed="false">短縮</button>
+          <button type="button" aria-pressed="false">中止</button>
+          <button type="button" aria-pressed="false">変更</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <p class="lbl">エルゴをやった？</p>
+        <div class="seg two" id="didErg">
+          <button type="button" aria-pressed="true">はい</button>
+          <button type="button" aria-pressed="false">いいえ</button>
+        </div>
+        <div id="ergBlock" style="margin-top:12px">
+          <button type="button" class="photo">PM画面の写真を撮る</button>
+          <p class="hint">v1.1 から。撮ると下が自動で埋まります。違っていたら直せます。</p>
+          <div class="grid2">
+            <div class="field"><input class="num" id="dist" type="number" inputmode="numeric" value="5106" aria-label="距離"><span class="unit">m</span></div>
+            <div class="field"><input class="num" id="split" type="text" value="1:57.5" aria-label="平均split"><span class="unit">/500m</span></div>
+            <div class="field"><input class="num" id="rate" type="number" inputmode="numeric" value="25" aria-label="平均rate"><span class="unit">s/m</span></div>
+            <div class="field"><input class="num" id="drag" type="number" inputmode="numeric" value="125" aria-label="ドラッグファクター"><span class="unit">DF</span></div>
+          </div>
+          <p class="hint" id="ergCheck"></p>
+        </div>
+      </section>
+    </div>
+
+    <section class="card">
+      <p class="lbl">ひとこと <span class="opt">（任意）</span></p>
+      <textarea placeholder="調子や気づいたこと" aria-label="ひとこと"></textarea>
+    </section>
+  </main>
+
+  <!-- ========== カレンダー ========== -->
+  <main id="pane-cal" class="hidden">
+    <section class="card">
+      <div class="calhead">
+        <div class="m">2026年9月</div>
+        <button type="button">今月へ</button>
+      </div>
+      <div class="cal" id="cal"></div>
+      <div class="legend">
+        <span><b>●</b> 出した</span>
+        <span><b style="color:var(--warn)">●</b> 練習日なのに未提出</span>
+        <span><b style="color:var(--off)">−</b> オフ</span>
+        <span><b style="color:var(--race)">■</b> 大会・テスト</span>
+      </div>
+      <p class="hint">日を押すとその日の記録を出せます。出し忘れた日は赤で残ります。</p>
+    </section>
+
+    <section class="card">
+      <p class="lbl">今月のあなた</p>
+      <div class="stat">
+        <div><div class="v">18</div><div class="k">練習日</div></div>
+        <div><div class="v">16</div><div class="k">出した</div></div>
+        <div><div class="v" style="color:var(--warn)">2</div><div class="k">未提出</div></div>
+      </div>
+      <p class="hint">未提出が残っていると、休んだのか出し忘れたのか分からなくなります。</p>
+    </section>
+  </main>
+
+  <!-- ========== みんな ========== -->
+  <main id="pane-all" class="hidden">
+    <section class="card">
+      <p class="lbl">9月8日（火）の提出</p>
+      <div class="stat">
+        <div><div class="v">31</div><div class="k">出した</div></div>
+        <div><div class="v" style="color:var(--warn)">7</div><div class="k">まだ</div></div>
+        <div><div class="v">82<span style="font-size:15px">%</span></div><div class="k">提出率</div></div>
+      </div>
+      <div class="people" id="people"></div>
+      <p class="hint">研究用IDで表示しています。実際のアプリでは名前が出ます（名前はアプリのコードには入れません）。</p>
+    </section>
+  </main>
+
+  <!-- ========== 設定 ========== -->
+  <main id="pane-set" class="hidden">
+    <section class="card">
+      <p class="lbl">あなた</p>
+      <p style="margin:0">C22 ／ 1年A組</p>
+      <div class="tags" style="margin-top:10px"><button type="button" class="addbtn">別の人に変える</button></div>
+    </section>
+    <section class="card">
+      <p class="lbl">送信待ち</p>
+      <p style="margin:0">0 件</p>
+      <p class="hint">電波が無いところで出した記録は、ここに溜まって後から自動で送られます。</p>
+    </section>
+    <section class="card">
+      <p class="lbl">このアプリ</p>
+      <p style="margin:0; font-size:14px; color:var(--sub)">RowLog v1.0（モック）</p>
+    </section>
+  </main>
+</div>
+
+<div class="bar">
+  <div class="in">
+    <button class="submit" id="submit">出す</button>
+    <div class="tabs" role="tablist" id="tabs">
+      <button type="button" role="tab" aria-selected="true"  data-p="today">今日</button>
+      <button type="button" role="tab" aria-selected="false" data-p="cal">カレンダー</button>
+      <button type="button" role="tab" aria-selected="false" data-p="all">みんな</button>
+      <button type="button" role="tab" aria-selected="false" data-p="set">設定</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  var RPE_QUESTION = '今日の練習全体は、どのくらいきつかったですか';
+  var RPE_LABELS = {0:'休んでいるのと同じ',1:'とても楽',2:'楽',3:'ふつう',4:'ややきつい',
+    5:'きつい',6:'きつい〜とてもきつい',7:'とてもきつい',8:'かなりきつい',9:'限界に近い',10:'限界。これ以上は無理'};
+  function asksLoad(s){ return s === '実施' || s === '一部実施'; }
+  function srpe(m,r){
+    if(m===null||m===undefined||m==='') return null;
+    if(r===null||r===undefined||r==='') return null;
+    var a=Number(m), b=Number(r);
+    return (isFinite(a)&&isFinite(b)) ? a*b : null;
+  }
+  function parseSplit(s){
+    if(s===null||s===undefined) return null;
+    var t=String(s).trim(); if(!t) return null;
+    var m=t.match(/^(?:(\d+):)?(\d{1,2}(?:\.\d+)?)$/); if(!m) return null;
+    var mi=m[1]?Number(m[1]):0, se=Number(m[2]);
+    return se>=60 ? null : mi*60+se;
+  }
+  function formatSplit(sec){
+    if(sec===null||!isFinite(sec)) return '';
+    var m=Math.floor(sec/60), s=sec-m*60;
+    return m+':'+(s<10?'0':'')+s.toFixed(1);
+  }
+  function checkErg(d,t,split){
+    var dd=Number(d), tt=Number(t), sp=parseSplit(split);
+    if(!isFinite(dd)||dd<=0||!isFinite(tt)||tt<=0||sp===null) return {ok:null,expected:null};
+    var e=tt/(dd/500);
+    return {ok:Math.abs(sp-e)<=0.5, expected:e};
+  }
+
+  document.getElementById('rpeQuestion').textContent = RPE_QUESTION;
+
+  var wrap=document.getElementById('rpe'), chosen=6;
+  for(var i=0;i<=10;i++){
+    var b=document.createElement('button');
+    b.type='button'; b.textContent=String(i);
+    b.setAttribute('aria-pressed', String(i===chosen)); b.dataset.v=String(i);
+    wrap.appendChild(b);
+  }
+  function paintRpe(){
+    var bs=wrap.querySelectorAll('button');
+    for(var i=0;i<bs.length;i++) bs[i].setAttribute('aria-pressed', String(Number(bs[i].dataset.v)===chosen));
+    document.getElementById('rpeLabel').textContent = chosen+'　'+RPE_LABELS[chosen];
+  }
+  wrap.addEventListener('click', function(e){
+    var t=e.target.closest('button'); if(!t) return;
+    chosen=Number(t.dataset.v); paintRpe();
+  });
+  paintRpe();
+
+  function seg(id,cb){
+    var el=document.getElementById(id);
+    el.addEventListener('click', function(e){
+      var t=e.target.closest('button'); if(!t) return;
+      var bs=el.querySelectorAll('button');
+      for(var i=0;i<bs.length;i++) bs[i].setAttribute('aria-pressed', String(bs[i]===t));
+      if(cb) cb(t.textContent.trim());
+    });
+  }
+  seg('status', function(v){ document.getElementById('loadBlock').classList.toggle('hidden', !asksLoad(v)); });
+  seg('completion');
+  seg('didErg', function(v){ document.getElementById('ergBlock').classList.toggle('hidden', v!=='はい'); });
+
+  function recheck(){
+    var d=Number(document.getElementById('dist').value);
+    var sp=document.getElementById('split').value;
+    var out=document.getElementById('ergCheck');
+    var r=checkErg(d,1200,sp);
+    if(r.ok===null){ out.textContent=''; return; }
+    out.textContent = r.ok ? '距離とsplitが合っています'
+      : '距離とsplitが合いません（計算上は '+formatSplit(r.expected)+'）';
+    out.style.color = r.ok ? 'var(--ok)' : 'var(--warn)';
+    out.style.fontWeight='700';
+  }
+  ['dist','split'].forEach(function(id){
+    document.getElementById(id).addEventListener('input', recheck);
+  });
+  recheck();
+
+  document.getElementById('submit').addEventListener('click', function(){
+    alert('モックなので送信しません。\n\nsRPE（練習時間 × きつさ）= '+srpe(document.getElementById('minutes').value, chosen));
+  });
+
+  /* --- カレンダー（2026年9月。9/1は火曜） --- */
+  var OFF   = {7:1,14:1,23:1,28:1};
+  var RACE  = {8:'20分エルゴ', 20:'記録会'};
+  var DONE  = {1:1,2:1,3:1,4:1,5:1,9:1,10:1,11:1};
+  var MISS  = {6:1,12:1};
+  var cal=document.getElementById('cal');
+  ['日','月','火','水','木','金','土'].forEach(function(w,i){
+    var e=document.createElement('div');
+    e.className='wd'+(i===0?' sun':i===6?' sat':'');
+    e.textContent=w; cal.appendChild(e);
+  });
+  for(var k=0;k<2;k++){ var bl=document.createElement('div'); bl.className='day blank'; cal.appendChild(bl); }
+  for(var d=1; d<=30; d++){
+    var el=document.createElement('div');
+    el.className='day'+(OFF[d]?' off':'')+(RACE[d]?' race':'')+(d===8?' today':'');
+    var n=document.createElement('div'); n.className='n'; n.textContent=d; el.appendChild(n);
+    var mk=document.createElement('div'); mk.className='mk';
+    if(OFF[d]){ mk.textContent='−'; mk.className+=' rest'; }
+    else if(DONE[d]){ mk.textContent='●'; mk.className+=' done'; }
+    else if(MISS[d]){ mk.textContent='●'; mk.className+=' miss'; }
+    else { mk.textContent=''; }
+    el.appendChild(mk);
+    el.title = OFF[d] ? 'オフ' : (RACE[d] || '練習');
+    cal.appendChild(el);
+  }
+
+  /* --- みんな（研究用IDのみ。実名はコードに入れない） --- */
+  var ids=[]; var i2;
+  for(i2=1;i2<=14;i2++) ids.push('B'+(i2<10?'0':'')+i2);
+  for(i2=1;i2<=24;i2++) ids.push('C'+(i2<10?'0':'')+i2);
+  var missing={ 'B03':1,'B09':1,'C04':1,'C11':1,'C17':1,'C22':1,'C24':1 };
+  var pe=document.getElementById('people');
+  ids.forEach(function(id){
+    var e=document.createElement('div');
+    e.className='p '+(missing[id]?'miss':'done');
+    e.innerHTML='<span>'+id+'</span><span class="s">'+(missing[id]?'—':'●')+'</span>';
+    pe.appendChild(e);
+  });
+
+  /* --- タブ --- */
+  var panes={today:'pane-today', cal:'pane-cal', all:'pane-all', set:'pane-set'};
+  var tabs=document.getElementById('tabs');
+  tabs.addEventListener('click', function(e){
+    var t=e.target.closest('button'); if(!t) return;
+    var bs=tabs.querySelectorAll('button');
+    for(var i=0;i<bs.length;i++) bs[i].setAttribute('aria-selected', String(bs[i]===t));
+    for(var k in panes) document.getElementById(panes[k]).classList.toggle('hidden', k!==t.dataset.p);
+    document.getElementById('submit').classList.toggle('hidden', t.dataset.p!=='today');
+    document.getElementById('hbtn').classList.toggle('hidden', t.dataset.p!=='today');
+    window.scrollTo(0,0);
+  });
+})();
+</script>

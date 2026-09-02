@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RowLog</title>
+<link rel="manifest" href="manifest.webmanifest?v=1.0.0">
+<meta name="theme-color" content="#1f3864">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="RowLog">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="style.css?v=1.0.0">
+</head>
+<body>
+
+<!-- 起動時 -->
+<div id="loading" class="center hidden"><p>読み込んでいます…</p></div>
+<div id="fatal" class="center fatal hidden"></div>
+
+<!-- 初回設定 -->
+<div id="setup" class="hidden">
+  <div class="setupBox">
+    <h1>RowLog</h1>
+    <p class="sub">練習の記録を出すアプリです。まず自分を選んでください。<br>一度選べば次から聞かれません。</p>
+    <p class="lbl">学年</p>
+    <div class="pickRow" id="setupGrade"></div>
+    <div id="setupStep2" class="hidden">
+      <p class="lbl">名前</p>
+      <div class="pickList" id="setupPeople"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 本体 -->
+<div id="app" class="shell hidden">
+  <header>
+    <div class="d" id="hdDate">—</div>
+    <div class="modeNote hidden" id="modeNote"></div>
+    <div class="id"><span id="queueBadge" class="badge hidden">送信待ち</span><span id="meId"></span></div>
+  </header>
+
+  <!-- 今日 -->
+  <main id="pane-today">
+    <section class="card">
+      <div class="plan">
+        <div class="kind" id="planKind">練習</div>
+        <div class="body">
+          <p id="planTitle"></p>
+          <p class="menus" id="planMenus"></p>
+        </div>
+      </div>
+    </section>
+
+    <p class="already hidden" id="already"></p>
+
+    <div id="actualOnly">
+      <section class="card">
+        <p class="lbl">今日は？</p>
+        <div class="seg" id="status">
+          <button type="button">実施</button><button type="button">一部実施</button>
+          <button type="button">欠席</button><button type="button">休養</button>
+        </div>
+      </section>
+
+      <div id="loadBlock">
+        <section class="card">
+          <p class="lbl">練習時間</p>
+          <div class="field">
+            <input class="num" id="minutes" type="number" inputmode="numeric" aria-label="練習時間（分）" placeholder="95">
+            <span class="unit">分</span>
+          </div>
+          <p class="hint">アップとダウンを含めた実際の時間</p>
+        </section>
+
+        <section class="card">
+          <p class="lbl">きつさ</p>
+          <p class="q" id="rpeQuestion"></p>
+          <div class="rpe" id="rpe"></div>
+          <p class="rpelabel" id="rpeLabel">まだ選んでいません</p>
+          <p class="hint">練習が終わって15〜30分後に答える</p>
+        </section>
+
+        <section class="card">
+          <p class="lbl">計画どおりできた？</p>
+          <div class="seg" id="completion">
+            <button type="button">計画どおり</button><button type="button">短縮</button>
+            <button type="button">中止</button><button type="button">変更</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <p class="lbl">エルゴをやった？</p>
+          <div class="seg two" id="didErg">
+            <button type="button">はい</button><button type="button">いいえ</button>
+          </div>
+          <div id="ergBlock" class="hidden" style="margin-top:12px">
+            <div class="grid2">
+              <div class="field"><input class="num" id="dist" type="number" inputmode="numeric" aria-label="距離" placeholder="5106"><span class="unit">m</span></div>
+              <div class="field"><input class="num" id="split" type="text" aria-label="平均split" placeholder="1:57.5"><span class="unit">/500m</span></div>
+              <div class="field"><input class="num" id="rate" type="number" inputmode="numeric" aria-label="平均rate" placeholder="25"><span class="unit">s/m</span></div>
+              <div class="field"><input class="num" id="drag" type="number" inputmode="numeric" aria-label="ドラッグファクター" placeholder="125"><span class="unit">DF</span></div>
+              <div class="field"><input class="num" id="machine" type="text" aria-label="機体番号" placeholder="3号"><span class="unit">号機</span></div>
+            </div>
+            <p class="hint" id="ergCheck"></p>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <section class="card">
+      <p class="lbl" id="blockLbl">メニュー</p>
+      <div class="tags" id="blocks"></div>
+      <div class="tags" style="margin-top:9px"><button type="button" class="addbtn" id="addBlock">＋ 足す</button></div>
+      <p class="hint">予定のメニューが入っています。違うことをしたら押して消してください。</p>
+    </section>
+
+    <section class="card">
+      <p class="lbl">ひとこと <span class="opt">（任意）</span></p>
+      <textarea id="note" placeholder="調子や気づいたこと" aria-label="ひとこと"></textarea>
+    </section>
+
+    <p class="planOnly hint hidden" id="planOnly">未来の日なので、予定として出します。当日になったら実際にやったことを出してください。</p>
+  </main>
+
+  <!-- カレンダー -->
+  <main id="pane-cal" class="hidden">
+    <section class="card">
+      <div class="calhead">
+        <button type="button" id="prevMonth" aria-label="前の月">‹</button>
+        <div class="m" id="calMonth"></div>
+        <button type="button" id="nextMonth" aria-label="次の月">›</button>
+        <button type="button" id="goToday">今日</button>
+      </div>
+      <div class="cal" id="cal"></div>
+      <div class="legend">
+        <span><b class="mk done">●</b> 出した</span>
+        <span><b class="mk miss">●</b> 未提出</span>
+        <span><b class="mk rest">−</b> オフ</span>
+        <span><b class="mk rest">◇</b> 予定を出した</span>
+      </div>
+      <p class="hint">日を押すとその日の記録を出せます。未来の日を押すと予定になります。</p>
+    </section>
+    <section class="card">
+      <p class="lbl">今月のあなた</p>
+      <div class="stat">
+        <div><div class="v" id="stPractice">0</div><div class="k">練習日</div></div>
+        <div><div class="v" id="stDone">0</div><div class="k">出した</div></div>
+        <div><div class="v warn" id="stMiss">0</div><div class="k">未提出</div></div>
+      </div>
+      <p class="hint">未提出が残っていると、休んだのか出し忘れたのか分からなくなります。</p>
+    </section>
+  </main>
+
+  <!-- みんな -->
+  <main id="pane-all" class="hidden">
+    <section class="card">
+      <p class="lbl" id="allDate">今日の提出</p>
+      <div class="stat">
+        <div><div class="v" id="allDone">0</div><div class="k">出した</div></div>
+        <div><div class="v warn" id="allMiss">0</div><div class="k">まだ</div></div>
+        <div><div class="v"><span id="allPct">0</span><span class="pct">%</span></div><div class="k">提出率</div></div>
+      </div>
+      <div class="people" id="people"></div>
+    </section>
+  </main>
+
+  <!-- 設定 -->
+  <main id="pane-set" class="hidden">
+    <section class="card">
+      <p class="lbl">あなた</p>
+      <p id="setMe" style="margin:0"></p>
+      <div class="tags" style="margin-top:10px"><button type="button" class="addbtn" id="changeMe">別の人に変える</button></div>
+    </section>
+    <section class="card">
+      <p class="lbl">送信待ち</p>
+      <p id="queueCount" style="margin:0">0 件</p>
+      <p class="hint">電波が無いところで出した記録はここに溜まり、電波が戻ると自動で送られます。アプリを消さないでください。</p>
+    </section>
+    <section class="card">
+      <p class="lbl">このアプリ</p>
+      <p id="appVer" style="margin:0; color:var(--sub); font-size:14px"></p>
+    </section>
+  </main>
+
+  <div class="bar">
+    <div class="in">
+      <div id="submitWrap"><button class="submit" id="submit">出す</button></div>
+      <div class="tabs" role="tablist" id="tabs">
+        <button type="button" role="tab" data-p="today" aria-selected="true">今日</button>
+        <button type="button" role="tab" data-p="cal" aria-selected="false">カレンダー</button>
+        <button type="button" role="tab" data-p="all" aria-selected="false">みんな</button>
+        <button type="button" role="tab" data-p="set" aria-selected="false">設定</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- メニュー選択 -->
+<div id="picker" class="sheet hidden">
+  <div class="sheetIn">
+    <div class="sheetHd"><b>メニューを選ぶ</b><button type="button" id="pickerClose">閉じる</button></div>
+    <div id="pickerBody"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="config.js?v=1.0.0"></script>
+<script src="logic.js?v=1.0.0"></script>
+<script src="app.js?v=1.0.0"></script>
+</body>
+</html>
