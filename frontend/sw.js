@@ -7,15 +7,15 @@
    実際に踏んでいるので、通信できるときは必ず新しいものを取りに行き、
    落ちたときだけ最後に取れたものを返す（network-first）。 */
 
-var VERSION = 'rowlog-1.1.0';
+var VERSION = 'rowlog-1.1.1';
 var SHELL = [
   './',
   './index.html',
-  './style.css?v=1.1.0',
-  './config.js?v=1.1.0',
-  './logic.js?v=1.1.0',
-  './app.js?v=1.1.0',
-  './manifest.webmanifest?v=1.1.0',
+  './style.css?v=1.1.1',
+  './config.js?v=1.1.1',
+  './logic.js?v=1.1.1',
+  './app.js?v=1.1.1',
+  './manifest.webmanifest?v=1.1.1',
   './icon-180.png',
   './icon-192.png',
   './icon-512.png'
