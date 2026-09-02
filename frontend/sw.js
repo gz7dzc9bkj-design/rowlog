@@ -7,15 +7,15 @@
    実際に踏んでいるので、通信できるときは必ず新しいものを取りに行き、
    落ちたときだけ最後に取れたものを返す（network-first）。 */
 
-var VERSION = 'rowlog-1.1.1';
+var VERSION = 'rowlog-1.1.2';
 var SHELL = [
   './',
   './index.html',
-  './style.css?v=1.1.1',
-  './config.js?v=1.1.1',
-  './logic.js?v=1.1.1',
-  './app.js?v=1.1.1',
-  './manifest.webmanifest?v=1.1.1',
+  './style.css?v=1.1.2',
+  './config.js?v=1.1.2',
+  './logic.js?v=1.1.2',
+  './app.js?v=1.1.2',
+  './manifest.webmanifest?v=1.1.2',
   './icon-180.png',
   './icon-192.png',
   './icon-512.png'
@@ -46,8 +46,19 @@ self.addEventListener('fetch', function (e) {
   var url = new URL(req.url);
   if (url.origin !== self.location.origin) return;        // Apps Script は触らない
 
+  /* HTML はブラウザのHTTPキャッシュを必ず飛ばして取りに行く。
+     GitHub Pages は HTML に短い max-age を付けるので、ふつうに fetch すると
+     配信し直した直後でも古い index.html が返り、それを Service Worker が
+     さらに保存してしまう。結果、直したのに古い js/css を読み続ける
+     （検証中に実際に踏んだ）。 */
+  var isShell = (req.mode === 'navigate')
+    || url.pathname === '/' || /\/$|\.html$/.test(url.pathname);
+  var go = isShell
+    ? fetch(req.url, { cache: 'no-store' })
+    : fetch(req);
+
   e.respondWith(
-    fetch(req).then(function (res) {
+    go.then(function (res) {
       if (res && res.ok) {
         var copy = res.clone();
         caches.open(VERSION).then(function (c) { c.put(req, copy); });
