@@ -35,7 +35,8 @@ var TEXT_COLS = {
   'メニュー': ['block_id', 'name', 'category'],
   '予定表':  ['date', 'kind', 'title', 'block_ids', 'note'],
   '回答':    ['research_id', 'date', 'status', 'block_ids', 'completion',
-             'erg_split', 'erg_machine', 'note', 'entered_by', 'client_id', 'app_version'],
+             'erg_split', 'erg_machine', 'photo_urls', 'note', 'entered_by',
+             'client_id', 'app_version'],
   '予定':    ['research_id', 'date', 'block_ids', 'note', 'client_id']
 };
 
@@ -192,7 +193,9 @@ function todayStatus(date) {
  */
 function submit(body) {
   var v = validateAnswer(body);
-  if (v.length) return { ok: false, error: v.join(' / ') };
+  /* kind を付ける。フロントはこれを見て「捨てる」か「粘る」かを決める。
+     以前は理由が分からず、一時的なサーバー側の失敗でも記録を捨てていた。 */
+  if (v.length) return { ok: false, kind: 'validation', error: v.join(' / ') };
 
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
@@ -239,10 +242,10 @@ function submit(body) {
  * 予定は変わるものなので履歴を持たない。実績の「回答」は追記のみで上書きしない。
  */
 function savePlan(body) {
-  if (!body.research_id) return { ok: false, error: 'research_id が無い' };
+  if (!body.research_id) return { ok: false, kind: 'validation', error: 'research_id が無い' };
   var d = dateStr(body.date);
-  if (!d) return { ok: false, error: '日付の形式が不正' };
-  if (!body.client_id) return { ok: false, error: 'client_id が無い' };
+  if (!d) return { ok: false, kind: 'validation', error: '日付の形式が不正' };
+  if (!body.client_id) return { ok: false, kind: 'validation', error: 'client_id が無い' };
 
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
@@ -283,6 +286,10 @@ function validateAnswer(b) {
   if (!dateStr(b && b.date)) e.push('日付の形式が不正');
   if (STATUS.indexOf(b && b.status) < 0) e.push('参加状態が不正');
   if (!b || !b.client_id) e.push('client_id が無い');
+  /* 実績は今日以前。未来日は「予定」シートの担当。UI 側の分岐が壊れると
+     未来日の「実施」が回答シートに確定保存され、消す手段がアプリに無い。 */
+  var bd = dateStr(b && b.date);
+  if (bd && bd > todayStr()) e.push('未来の日付は実績にできない');
 
   if (b && asksLoad(b.status)) {
     var m = Number(b.minutes), r = Number(b.rpe);
@@ -402,7 +409,13 @@ function dateStr(v) {
     return Utilities.formatDate(v, TZ, 'yyyy-MM-dd');
   }
   var s = String(v).trim();
-  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
+  /* 桁数だけ見ていると 2026-02-30 や 2026-13-45 が素通りし、
+     文字列のまま確定保存されて解析時に1行分が欠ける。実在するか確かめる。 */
+  var y = Number(s.slice(0, 4)), m = Number(s.slice(5, 7)), d = Number(s.slice(8, 10));
+  var t = new Date(y, m - 1, d);
+  if (t.getFullYear() !== y || t.getMonth() !== m - 1 || t.getDate() !== d) return '';
+  return s;
 }
 
 function addDays(ymd, n) {

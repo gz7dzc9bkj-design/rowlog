@@ -318,7 +318,11 @@
     var kind = document.getElementById('planKind');
     kind.textContent = p.kind;
     kind.className = 'kind' + (p.kind === 'オフ' ? ' off' : p.kind === '大会' ? ' race' : '');
-    document.getElementById('planTitle').textContent = p.title || (p.kind === 'オフ' ? '練習はありません' : '練習');
+    /* 種別のチップに既に「練習」と出ているので、同じ語を並べない */
+    document.getElementById('planTitle').textContent = p.title
+      || (p.kind === 'オフ' ? '練習はありません'
+        : p.kind === '大会' ? '大会'
+        : '種目は決まっていません');
     document.getElementById('planMenus').textContent = p.block_ids.length
       ? '予定：' + p.block_ids.map(menuName).join(' ／ ') : '';
 

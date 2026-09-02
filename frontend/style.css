@@ -192,6 +192,8 @@ main {
 /* ---------------- セグメント ---------------- */
 .seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .seg.two { grid-template-columns: repeat(2, 1fr); }
+/* 「計画どおり」は4列だと2行に折れて読みにくい。2×2にする */
+#completion { grid-template-columns: repeat(2, 1fr); }
 .seg button {
   min-height: var(--tap); padding: 10px 4px;
   background: var(--card); color: var(--fg);
