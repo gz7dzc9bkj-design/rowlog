@@ -281,10 +281,38 @@
     return c[dateStr] || { kind: '練習', title: '', block_ids: [], note: '' };
   }
 
+  /* 保存されている「自分」がまともな形か確かめる。
+
+     このアプリは gz7dzc9bkj-design.github.io の /rowlog/ にあり、
+     同じドメインの /heisou-plan/ /chronoboard/ /drive-cost/ とは
+     localStorage を共有している（オリジンはパスを見ないため）。
+     どれかに script を走らせられる穴があれば rowlog.me を書き換えられ、
+     以後の提出が別人として送られる。形の検査だけでも、壊れた値のまま
+     黙って他人になりすまして出し続ける事故は防げる。 */
+  function sane(me) {
+    if (!me || typeof me !== 'object') return false;
+    if (!/^[A-C]\d{2}$/.test(String(me.id || ''))) return false;
+    if (!me.name) return false;
+    // 名簿を読めているなら、そこに実在するかまで見る
+    var r = state.boot && state.boot.roster;
+    if (r && r.length) {
+      for (var i = 0; i < r.length; i++) {
+        if (r[i].id === me.id) return r[i].name === me.name;
+      }
+      return false;
+    }
+    return true;
+  }
+
   /* ---------------- 起動 ---------------- */
   function boot() {
     state.boot = load(K.boot, null);
     state.me = load(K.me, null);
+    if (state.me && !sane(state.me)) {
+      console.warn('保存されていた本人情報がおかしいので選び直します', state.me);
+      localStorage.removeItem(K.me);
+      state.me = null;
+    }
     state.mine = load(K.mine, { answers: {}, plans: {} });
     state.date = todayStr();
     state.calYm = { y: toDate(state.date).getFullYear(), m: toDate(state.date).getMonth() + 1 };
@@ -318,6 +346,10 @@
       var sn = document.getElementById('slowNote');
       if (sn) sn.classList.add('hidden');
       checkClock(r.today);
+      if (state.me && !sane(state.me)) {     // 名簿が来たので改めて確かめる
+        localStorage.removeItem(K.me);
+        state.me = null;
+      }
       if (!state.me) { showSetup(); } else { start(); }
       return flush();
     }).then(function () {

@@ -24,7 +24,12 @@ var SHEETS = {
                                      'block_ids', 'completion', 'erg_distance', 'erg_split', 'erg_rate',
                                      'erg_drag', 'erg_machine', 'photo_urls', 'note', 'entered_by',
                                      'client_id', 'app_version'] },
-  plans:    { name: '予定',    head: ['submitted_at', 'research_id', 'date', 'block_ids', 'note', 'client_id'] }
+  plans:    { name: '予定',    head: ['submitted_at', 'research_id', 'date', 'block_ids', 'note', 'client_id'] },
+  /* 怪しい書き込みを記録するだけのシート。弾かない。
+     このウェブアプリは誰でも POST できる（text/plain は CORS の単純リクエストなので
+     プリフライトが起きず、Apps Script はリクエストヘッダを読めないので送信元を確かめられない）。
+     防ぐ代わりに、アプリ経由らしくない書き込みをここに残して主務が気づけるようにする。 */
+  audit:    { name: '監査ログ', head: ['at', 'what', 'research_id', 'date', 'flags', 'client_id', 'app_version'] }
 };
 
 /* 数値と解釈されると壊れる列。スプレッドシートは "30001,90009" を
@@ -37,7 +42,8 @@ var TEXT_COLS = {
   '回答':    ['research_id', 'date', 'status', 'block_ids', 'completion',
              'erg_split', 'erg_machine', 'photo_urls', 'note', 'entered_by',
              'client_id', 'app_version'],
-  '予定':    ['research_id', 'date', 'block_ids', 'note', 'client_id']
+  '予定':    ['research_id', 'date', 'block_ids', 'note', 'client_id'],
+  '監査ログ': ['at', 'what', 'research_id', 'date', 'flags', 'client_id', 'app_version']
 };
 
 var STATUS = ['実施', '一部実施', '欠席', '休養'];
@@ -237,9 +243,13 @@ function submit(body) {
       String(body.client_id).trim(),
       String(body.app_version || '')
     ]);
-    return { ok: true, srpe: srpe === '' ? null : srpe };
-  } finally {
+    var res = { ok: true, srpe: srpe === '' ? null : srpe };
     lock.releaseLock();
+    lock = null;
+    logAudit_('submit', body, auditFlags_(body, 'submit'));   // ロックの外で書く
+    return res;
+  } finally {
+    if (lock) lock.releaseLock();
   }
 }
 
@@ -312,6 +322,93 @@ function validateAnswer(b) {
     if (b.rpe !== null && b.rpe !== undefined && b.rpe !== '') e.push('欠席・休養でRPEが入っている');
   }
   return e;
+}
+
+/* ============================ 監査 ============================ */
+
+/**
+ * アプリ経由らしくない書き込みを見分ける。シートは一切読まないので速い。
+ * 弾かない。記録するだけ。誤検知で本物の提出を落とすほうが害が大きい。
+ */
+function auditFlags_(b, what) {
+  var f = [];
+  b = b || {};
+
+  var ver = String(b.app_version || '').trim();
+  if (!ver) f.push('app_versionが空');
+  else if (!/^\d+\.\d+\.\d+$/.test(ver)) f.push('app_versionの形が違う(' + ver + ')');
+
+  /* アプリは 'x-' + 時刻の36進 + '-' + 乱数 という形で作る（app.js の uuid()）。
+     手で作った client_id はここで形が合わない。 */
+  var cid = String(b.client_id || '').trim();
+  if (!/^x-[0-9a-z]+-[0-9a-z]+$/.test(cid)) f.push('client_idの形が違う');
+
+  var rid = String(b.research_id || '').trim();
+  if (!/^[A-C]\d{2}$/.test(rid)) f.push('研究IDの形が違う(' + rid + ')');
+
+  if (what === 'submit') {
+    var eb = String(b.entered_by || '').trim();
+    if (eb && eb !== rid) f.push('入力者が本人と違う(' + eb + ')');
+    if (STATUS.indexOf(b.status) < 0) f.push('参加状態が想定外');
+  }
+
+  /* だいぶ前の日付を今ごろ入れてくるのは、出し忘れの後追いか、偽装か。
+     出し忘れの後追いは実際にあるので弾かない。目印だけ残す。 */
+  var d = dateStr(b.date);
+  if (d) {
+    var age = daysBetween_(d, todayStr());
+    if (age > 10) f.push(age + '日前の記録');
+  }
+  return f;
+}
+
+function daysBetween_(a, b) {
+  var pa = a.split('-'), pb = b.split('-');
+  var da = new Date(Number(pa[0]), Number(pa[1]) - 1, Number(pa[2]));
+  var db = new Date(Number(pb[0]), Number(pb[1]) - 1, Number(pb[2]));
+  return Math.round((db - da) / 86400000);
+}
+
+/** 目印が付いたときだけ1行残す。ロックの外で呼ぶこと（提出を遅くしないため）。 */
+function logAudit_(what, b, flags) {
+  if (!flags || !flags.length) return;
+  try {
+    var sh = sheet(SHEETS.audit);
+    sh.appendRow([
+      nowIso(),
+      what,
+      String((b && b.research_id) || '').trim(),
+      dateStr(b && b.date),
+      flags.join(' / '),
+      String((b && b.client_id) || '').trim(),
+      String((b && b.app_version) || '').trim()
+    ]);
+  } catch (e) {
+    /* 記録に失敗しても提出は通す。監査は保険であって関門ではない */
+    Logger.log('監査ログに書けませんでした: ' + e);
+  }
+}
+
+/**
+ * 主務が手で実行する。同じ(研究ID, 日付)が2行以上ある組み合わせを挙げる。
+ * 出し直しは仕様なので普通に起きる。解析では最後の1件を採る。
+ * 提出のたびに調べるとロックが伸びるので、ここで手動にしている。
+ */
+function findDuplicates() {
+  var rows = readAll(SHEETS.answers);
+  var seen = {}, dup = {};
+  for (var i = 0; i < rows.length; i++) {
+    var k = String(rows[i].research_id).trim() + ' / ' + dateStr(rows[i].date);
+    seen[k] = (seen[k] || 0) + 1;
+    if (seen[k] > 1) dup[k] = seen[k];
+  }
+  var keys = Object.keys(dup).sort();
+  var out = keys.length
+    ? ('同じ日に2件以上ある組み合わせ ' + keys.length + ' 件:\n'
+       + keys.map(function (k) { return '  ' + k + ' → ' + dup[k] + '件'; }).join('\n'))
+    : '重複はありません。';
+  Logger.log(out);
+  return out;
 }
 
 /* ============================ 小道具 ============================ */
