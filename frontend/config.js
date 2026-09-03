@@ -9,7 +9,7 @@ var ROWLOG_CONFIG = {
      アプリが無かった日まで未提出扱いになるのを防ぐ。 */
   COLLECT_FROM: '2026-09-01',
 
-  VERSION: '1.2.2'
+  VERSION: '1.3.0'
 };
 
 /* 検証用: ?api=http://localhost:8766 を付けると繋ぎ先を差し替えられる。

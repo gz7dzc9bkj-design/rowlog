@@ -86,14 +86,28 @@ function json(obj) {
 /* ============================ 読み ============================ */
 
 function bootstrap() {
-  return {
+  var cal = readCalendar();   // 先に呼ぶ。中で診断用の数を立てている
+  var out = {
     ok: true,
     app: APP,
     today: todayStr(),
     roster: readRoster(),
     menu: readMenu(),
-    calendar: readCalendar()
+    calendar: cal
   };
+  /* 予定表がおかしいときだけ載せる。ふだんは付かないので通信量も増えない。
+     これが付いていたら、全日が「ふつうの練習」に戻っている可能性がある。 */
+  if (calendarMissing || calendarSkipped > 0) {
+    out.calendarWarn = {
+      missing: calendarMissing,
+      skipped: calendarSkipped,
+      message: calendarMissing
+        ? '「予定表」シートが見つかりません。名前を変えていませんか。全日ふつうの練習として扱っています'
+        : ('予定表の ' + calendarSkipped + ' 行で日付を読めませんでした。'
+           + 'YYYY-MM-DD の形（書式なしテキスト）になっているか確かめてください')
+    };
+  }
+  return out;
 }
 
 function readRoster() {
@@ -130,12 +144,20 @@ function readMenu() {
 }
 
 /** 予定表。行が無い日は「練習」として扱うので、ここには書かれた日だけ返す。 */
+/* 主務がシート名を変えたり、日付セルの書式を崩したりすると、
+   このアプリは黙って「全日ふつうの練習」に戻る。誰にもエラーが出ない。
+   何が起きたかを数えておき、bootstrap の返り値に載せて気づけるようにする。 */
+var calendarSkipped = 0;
+var calendarMissing = false;
+
 function readCalendar() {
+  calendarMissing = !ss().getSheetByName(SHEETS.calendar.name);
+  calendarSkipped = 0;
   var rows = readAll(SHEETS.calendar);
   var out = {};
   for (var i = 0; i < rows.length; i++) {
     var d = dateStr(rows[i].date);
-    if (!d) continue;
+    if (!d) { calendarSkipped++; continue; }
     var kind = String(rows[i].kind || '').trim();
     out[d] = {
       kind: KINDS.indexOf(kind) >= 0 ? kind : '練習',

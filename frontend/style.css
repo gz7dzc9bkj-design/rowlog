@@ -63,6 +63,29 @@ button { cursor: pointer; }
 }
 .fatal { color: var(--danger); }
 
+.proxybar {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin: 0 12px 10px; padding: 10px 14px; border-radius: 10px;
+  background: var(--primary); color: var(--primary-fg);
+  font-size: 13px; font-weight: 600; line-height: 1.5;
+}
+.proxybar button {
+  flex: none; border: 1px solid rgba(255,255,255,.5); background: transparent;
+  color: inherit; border-radius: 8px; padding: 6px 12px; font-size: 13px;
+  font-family: inherit; cursor: pointer;
+}
+.dump {
+  margin: 0 16px 16px; padding: 12px; max-height: 46vh; overflow: auto;
+  background: var(--muted); border: 1px solid var(--border); border-radius: 10px;
+  font-size: 12px; line-height: 1.7; white-space: pre-wrap; word-break: break-all;
+  -webkit-user-select: text; user-select: text;
+}
+.sheetfoot {
+  display: flex; gap: 10px; justify-content: flex-end;
+  padding: 0 16px 16px;
+}
+.rowbtn.danger { color: var(--destructive); border-color: var(--destructive); }
+
 .center .slow {
   margin-top: 14px; font-size: 13px; line-height: 1.6;
   color: var(--warn);

@@ -9,6 +9,7 @@
   var MAX_TRIES = 5;        // これを超えたら諦めて「送れなかった」箱に移す
   var MAX_QUEUE = 120;      // 送信待ちの上限。これ以上は端末の保存を圧迫する
   var flushing = false;     // flush の二重起動止め
+  var proxyFor = null;      // 代理入力の相手。1回出したら自動で戻す
   var sending = false;      // 「出す」の二重押し止め
 
   var state = {
@@ -281,6 +282,61 @@
     return c[dateStr] || { kind: '練習', title: '', block_ids: [], note: '' };
   }
 
+  /* いま誰の分を出そうとしているか。代理入力中はその相手、ふだんは自分。 */
+  function whoFor() { return proxyFor || state.me; }
+
+  /* 代理入力。要件（REQUIREMENTS 2章）にある「出し忘れた人の分を記録係が後から入れる」。
+
+     設定の「変える」で他人に切り替える運用だと、戻し忘れたときに
+     以後ずっと他人の研究IDで記録され続け、entered_by にも痕跡が残らない。
+     そこで、1回出したら必ず自分に戻る使い切りの仕組みにした。 */
+  function startProxy() {
+    if (!state.boot || !(state.boot.roster || []).length) {
+      toast('名簿をまだ読み込めていません'); return;
+    }
+    var sheet = document.getElementById('proxyPick');
+    var wrap = document.getElementById('proxyList');
+    wrap.innerHTML = '';
+    state.boot.roster.forEach(function (p) {
+      if (p.id === state.me.id) return;          // 自分は出さない
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'pickrow';
+      b.innerHTML = '<b>' + esc(p.name) + '</b><span>' + p.grade + '年' + esc(p.cls) + '組</span>';
+      b.onclick = function () {
+        proxyFor = p;
+        sheet.classList.add('hidden');
+        paintProxy();
+        showTab('today');
+        openDate(state.date);
+        toast(p.name + ' さんの分を入力します');
+      };
+      wrap.appendChild(b);
+    });
+    sheet.classList.remove('hidden');
+  }
+
+  function endProxy(silent) {
+    if (!proxyFor) return;
+    var was = proxyFor;
+    proxyFor = null;
+    paintProxy();
+    openDate(state.date);
+    if (!silent) toast('自分の入力に戻りました（' + was.name + ' さんの分は終わり）');
+  }
+
+  function paintProxy() {
+    var bar = document.getElementById('proxyBar');
+    if (!bar) return;
+    if (proxyFor) {
+      document.getElementById('proxyWho').textContent =
+        '代理入力中：' + proxyFor.name + ' さんの分';
+      bar.classList.remove('hidden');
+    } else {
+      bar.classList.add('hidden');
+    }
+  }
+
   /* 保存されている「自分」がまともな形か確かめる。
 
      このアプリは gz7dzc9bkj-design.github.io の /rowlog/ にあり、
@@ -346,6 +402,15 @@
       var sn = document.getElementById('slowNote');
       if (sn) sn.classList.add('hidden');
       checkClock(r.today);
+      /* 予定表がおかしいときはサーバーが教えてくれる。主務が気づけるように出す。
+         これが出ているあいだ、オフ日が「ふつうの練習」に化けている可能性がある。 */
+      if (r.calendarWarn) {
+        var cw = document.getElementById('storageWarn');
+        if (cw) {
+          cw.textContent = '予定表: ' + r.calendarWarn.message;
+          cw.classList.remove('hidden');
+        }
+      }
       if (state.me && !sane(state.me)) {     // 名簿が来たので改めて確かめる
         localStorage.removeItem(K.me);
         state.me = null;
@@ -758,14 +823,14 @@
 
     if (state.planMode) {
       payload = {
-        action: 'plan', research_id: state.me.id, date: state.date,
+        action: 'plan', research_id: whoFor().id, date: state.date,
         block_ids: f.blocks, note: L.cutText(document.getElementById('note').value, 200),
         client_id: uuid(), app_version: CFG.VERSION
       };
     } else {
       var load = L.asksLoad(f.status);
       payload = {
-        action: 'submit', research_id: state.me.id, date: state.date, status: f.status,
+        action: 'submit', research_id: whoFor().id, date: state.date, status: f.status,
         minutes: load ? Number(document.getElementById('minutes').value) : '',
         rpe: load ? f.rpe : '',
         block_ids: f.blocks,
@@ -776,6 +841,9 @@
         erg_drag: f.didErg ? document.getElementById('drag').value : '',
         erg_machine: f.didErg ? document.getElementById('machine').value : '',
         note: L.cutText(document.getElementById('note').value, 200),
+        /* 代理入力のときだけ、出す相手と入力した人が分かれる。
+           要件どおり「誰が入れたか」を残す。1回出したら自動で自分に戻すので、
+           設定の『変える』で他人に切り替えたまま戻し忘れる事故が起きない。 */
         entered_by: state.me.id,
         client_id: uuid(), app_version: CFG.VERSION
       };
@@ -796,6 +864,7 @@
     }
 
     lockSubmit();
+    if (proxyFor) endProxy(true);   // 使い切り。戻し忘れを起こさせない
     // 送信の成否を待たせない。キューに入れた時点で完了扱いにする。
     if (state.planMode) {
       state.mine.plans[state.date] = { block_ids: payload.block_ids, note: payload.note };
@@ -897,7 +966,52 @@
       document.getElementById('picker').classList.add('hidden');
     };
     document.getElementById('submit').onclick = doSubmit;
+    document.getElementById('proxyStart').onclick = startProxy;
+    document.getElementById('proxyPickClose').onclick = function () {
+      document.getElementById('proxyPick').classList.add('hidden');
+    };
+    document.getElementById('proxyCancel').onclick = function () { endProxy(); };
+
+    /* 送れなかった記録の中身を出す。以前は件数しか出ず、復旧するには
+       本人のスマホで開発者ツールを開くしかなかった。38人分では現実的でない。 */
+    document.getElementById('showFailed').onclick = function () {
+      var fl = failed();
+      document.getElementById('failedBody').textContent =
+        fl.map(function (x, i) {
+          var p = x.payload || {};
+          return (i + 1) + '件目  ' + (x.at || '') + '\n'
+            + '  理由: ' + (x.error || '不明') + '\n'
+            + '  ' + (p.date || '') + '  ' + (p.research_id || '') + '  ' + (p.status || '')
+            + '  ' + (p.minutes === '' || p.minutes === undefined ? '' : p.minutes + '分')
+            + '  ' + (p.rpe === '' || p.rpe === undefined ? '' : 'RPE' + p.rpe) + '\n'
+            + '  ' + JSON.stringify(p);
+        }).join('\n\n') || '(ありません)';
+      document.getElementById('failedSheet').classList.remove('hidden');
+    };
+    document.getElementById('failedClose').onclick = function () {
+      document.getElementById('failedSheet').classList.add('hidden');
+    };
+    document.getElementById('failedRetry').onclick = function () {
+      var fl = failed();
+      if (!fl.length) return;
+      var q = queue();
+      fl.forEach(function (x) { if (x.payload) q.push(x.payload); });
+      save(K.queue, q);
+      save(K.failed, []);
+      paintQueue();
+      document.getElementById('failedSheet').classList.add('hidden');
+      toast('送信待ちに戻しました');
+      flush();
+    };
+    document.getElementById('failedClear').onclick = function () {
+      if (!confirm('送れなかった記録を消します。元に戻せません。よろしいですか？')) return;
+      save(K.failed, []);
+      paintQueue();
+      document.getElementById('failedSheet').classList.add('hidden');
+    };
+
     document.getElementById('changeMe').onclick = function () {
+      if (proxyFor) { toast('先に代理入力をやめてください'); return; }
       localStorage.removeItem(K.me);
       state.me = null;
       document.getElementById('app').classList.add('hidden');
