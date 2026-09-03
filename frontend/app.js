@@ -329,6 +329,10 @@
       if (sn2) sn2.classList.add('hidden');
       if (state.boot && state.me) {
         start();                      // 圏外でもキャッシュで動かす
+        /* 圏外でも、前回読み込んだサーバー日付と比べれば時計ずれは分かる。
+           起動の成功パスでしか見ていないと、時計ずれ×圏外が重なったときに
+           警告が一度も出ないまま違う日付の記録が積まれる。 */
+        checkClock(state.boot.today, true);
         toast('つながらないので、前に読み込んだ内容で動いています');
       } else {
         showError('つながりませんでした。電波のあるところでもう一度開いてください。');
@@ -336,7 +340,13 @@
       console.warn(e);
     });
 
-    window.addEventListener('online', function () { flush(); });
+    window.addEventListener('online', function () {
+      flush();
+      // 電波が戻ったら時計も見直す。起動時1回きりだと直しても警告が消えない
+      api('bootstrap').then(function (r) {
+        if (r && r.ok) { state.boot = r; save(K.boot, r); checkClock(r.today); }
+      }).catch(function () {});
+    });
     /* iOS はホーム画面から戻したとき load が起きない。
        画面が表に出たタイミングでも送信待ちを片づける。 */
     document.addEventListener('visibilitychange', function () {
@@ -348,14 +358,18 @@
   /* 端末の日付がずれていると、違う日の記録として保存される。
      サーバーが返す今日と突き合わせて、ずれていたら知らせる。
      時差ではなく端末の時計そのものが狂っている場合を捕まえる。 */
-  function checkClock(serverToday) {
+  function checkClock(serverToday, stale) {
     var e = document.getElementById('clockWarn');
     if (!e || !serverToday) return;
     var mine = todayStr();
     if (mine === serverToday) { e.classList.add('hidden'); return; }
-    e.textContent = 'この端末の日付は ' + mine + ' ですが、実際は ' + serverToday
-      + ' です。日付がずれたまま出すと違う日の記録になります。'
-      + '端末の日付設定を直してから出してください。';
+    /* 圏外のときは前回読み込んだ日付と比べる。日付が進んでいるのは当たり前なので、
+       「進んでいる」だけでは警告しない。戻っている場合だけ確実におかしい。 */
+    if (stale && mine > serverToday) { e.classList.add('hidden'); return; }
+    e.textContent = 'この端末の日付は ' + mine + ' ですが、'
+      + (stale ? '前に読み込んだときは ' : '実際は ') + serverToday
+      + ' でした。日付がずれたまま出すと違う日の記録になります。'
+      + '端末の日付設定を確かめてください。';
     e.classList.remove('hidden');
   }
 
@@ -416,14 +430,33 @@
     buildCalendar();
   }
 
+  /* サーバーの既定は「今日の前後45日」。収集期間は9/1〜10月下旬の約61日あるので、
+     10月17日を過ぎると9月上旬が窓から外れる。そのまま state.mine を置き換えると
+     端末に残っていた9月分まで消え、カレンダーで提出済みの日が赤（未提出）に変わる。
+     部員はそれを見て出し直し、同じ日に2行できる。範囲を明示し、混ぜて持つ。 */
   function refreshMine() {
-    return api('mine', { research_id: state.me.id }).then(function (r) {
+    var from = CFG.COLLECT_FROM || '2026-01-01';
+    var to = addDaysStr(todayStr(), 60);
+    return api('mine', { research_id: state.me.id, from: from, to: to }).then(function (r) {
       if (r && r.ok) {
-        state.mine = { answers: r.answers || {}, plans: r.plans || {} };
+        var merged = { answers: {}, plans: {} };
+        var old = state.mine || { answers: {}, plans: {} };
+        // 先に手元の分、次にサーバーの分。サーバーを正とする
+        Object.keys(old.answers || {}).forEach(function (k) { merged.answers[k] = old.answers[k]; });
+        Object.keys(old.plans || {}).forEach(function (k) { merged.plans[k] = old.plans[k]; });
+        Object.keys(r.answers || {}).forEach(function (k) { merged.answers[k] = r.answers[k]; });
+        Object.keys(r.plans || {}).forEach(function (k) { merged.plans[k] = r.plans[k]; });
+        state.mine = merged;
         save(K.mine, state.mine);
         buildCalendar();
       }
     }).catch(function () {});
+  }
+
+  function addDaysStr(ymd, n) {
+    var d = toDate(ymd);
+    d.setDate(d.getDate() + n);
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
   }
 
   /* --- 日付を開く --- */
@@ -694,7 +727,7 @@
     if (state.planMode) {
       payload = {
         action: 'plan', research_id: state.me.id, date: state.date,
-        block_ids: f.blocks, note: document.getElementById('note').value.slice(0, 200),
+        block_ids: f.blocks, note: L.cutText(document.getElementById('note').value, 200),
         client_id: uuid(), app_version: CFG.VERSION
       };
     } else {
@@ -710,7 +743,7 @@
         erg_rate: f.didErg ? document.getElementById('rate').value : '',
         erg_drag: f.didErg ? document.getElementById('drag').value : '',
         erg_machine: f.didErg ? document.getElementById('machine').value : '',
-        note: document.getElementById('note').value.slice(0, 200),
+        note: L.cutText(document.getElementById('note').value, 200),
         entered_by: state.me.id,
         client_id: uuid(), app_version: CFG.VERSION
       };

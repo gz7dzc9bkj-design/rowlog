@@ -86,6 +86,15 @@
     return n >= r[0] && n <= r[1];
   }
 
+  /* 文字数で切る。'a'.repeat(199) + 絵文字 に .slice(0,200) をかけると
+     絵文字の上半分（サロゲート）だけが残り、壊れた文字がシートに入る。
+     解析のときにその1行だけ文字化けする。コードポイントで数える。 */
+  function cutText(s, n) {
+    if (s === null || s === undefined) return '';
+    var a = Array.from(String(s));
+    return a.length <= n ? String(s) : a.slice(0, n).join('');
+  }
+
   /* 送信前の検証。問題があれば理由の配列を返す */
   function validate(rec) {
     var e = [];
@@ -102,7 +111,7 @@
       if (rec.minutes !== null && rec.minutes !== undefined && rec.minutes !== '') e.push('欠席・休養で練習時間が入っている');
       if (rec.rpe !== null && rec.rpe !== undefined && rec.rpe !== '') e.push('欠席・休養でRPEが入っている');
     }
-    if (rec.note && String(rec.note).length > 200) e.push('ひとことが200字を超えている');
+    if (rec.note && Array.from(String(rec.note)).length > 200) e.push('ひとことが200字を超えている');
     if (!rec.client_id) e.push('client_idが無い');
     /* エルゴの値も送信を止める。以前は赤字の警告を出すだけで、そのまま出せていた。 */
     e = e.concat(ergWarnings({
@@ -158,6 +167,7 @@
     checkErg: checkErg,
     impliedSeconds: impliedSeconds,
     ergWarnings: ergWarnings,
+    cutText: cutText,
     inRange: inRange,
     validate: validate
   };

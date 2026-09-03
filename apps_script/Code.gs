@@ -232,7 +232,7 @@ function submit(body) {
       numOrBlank(body.erg_drag),
       body.erg_machine ? String(body.erg_machine).trim() : '',
       (body.photo_urls || []).join(','),
-      String(body.note || '').slice(0, 200),
+      cutText(body.note, 200),
       String(body.entered_by || body.research_id).trim(),
       String(body.client_id).trim(),
       String(body.app_version || '')
@@ -265,7 +265,7 @@ function savePlan(body) {
     var last = sh.getLastRow();
     var id = String(body.research_id).trim();
     var ids = splitIds(body.block_ids).join(', ');   // 空白必須。','だけだと数値に変換されて壊れる
-    var note = String(body.note || '').slice(0, 200);
+    var note = cutText(body.note, 200);
 
     if (last >= 2) {
       var vals = sh.getRange(2, 1, last - 1, head.length).getValues();
@@ -411,6 +411,14 @@ function splitIds(v) {
     return v.map(function (x) { return String(x).trim(); }).filter(String);
   }
   return String(v).split(',').map(function (x) { return x.trim(); }).filter(String);
+}
+
+/* 文字数で切る。'a'.repeat(199) + 絵文字 に slice(0,200) をかけると
+   絵文字の上半分だけが残り、壊れた文字がシートに入る。コードポイントで数える。 */
+function cutText(s, n) {
+  if (s === null || s === undefined) return '';
+  var a = String(s).split(/(?:)/u);
+  return a.length <= n ? String(s) : a.slice(0, n).join('');
 }
 
 function numOrBlank(v) {
