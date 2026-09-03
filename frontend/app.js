@@ -102,6 +102,13 @@
     });
   }
 
+  /* Apps Script は健康なときでも時々こける。実測で、24回連続は全部通ったのに
+     別の試行では33秒かけて HTTP 404 を返した回があった。実機でも、起動が
+     一度だけ失敗して「つながりませんでした」になるのを踏んだ。
+     1回で諦めると、38人が一斉に開く初日に何人かが必ずこれを見る。
+     少し待って作り直す。3回まで。 */
+  var GET_TRIES = 3;
+
   function api(action, params) {
     var url = CFG.API_URL + (CFG.API_URL.indexOf('?') < 0 ? '?' : '&') + 'action=' + encodeURIComponent(action);
     for (var k in (params || {})) {
@@ -109,7 +116,24 @@
         url += '&' + k + '=' + encodeURIComponent(params[k]);
       }
     }
-    return fetchTimeout(url, { method: 'GET' }, TIMEOUT_GET).then(readJson);
+    var attempt = 0;
+    function once() {
+      attempt++;
+      return fetchTimeout(url, { method: 'GET' }, TIMEOUT_GET).then(readJson).then(function (j) {
+        /* ok:false でも「サーバーが答えを返した」ので作り直さない。
+           作り直すのは、届かなかった・読めなかったときだけ。 */
+        return j;
+      }, function (e) {
+        if (attempt >= GET_TRIES) throw e;
+        console.warn('読み込みに失敗。' + attempt + '回目。作り直します', e && e.message);
+        return wait(attempt * 900).then(once);
+      });
+    }
+    return once();
+  }
+
+  function wait(ms) {
+    return new Promise(function (r) { setTimeout(r, ms); });
   }
 
   /* Apps Script はレスポンスヘッダを付けられない。
