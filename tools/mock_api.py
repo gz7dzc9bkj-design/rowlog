@@ -43,6 +43,16 @@ ANSWERS = []   # dict の並び
 PLANS = []
 
 
+def real_date(ymd):
+    """2026-02-30 のような「形は正しいが存在しない日」を弾く。Code.gs と同じ規則。"""
+    try:
+        y, m, d = str(ymd).split("-")
+        datetime.date(int(y), int(m), int(d))
+        return True
+    except Exception:
+        return False
+
+
 def today_str():
     return datetime.date.today().isoformat()
 
@@ -87,6 +97,13 @@ def validate(b):
         e.append("参加状態が不正")
     if not b.get("client_id"):
         e.append("client_id が無い")
+    # Code.gs だけが持っていた規則。偽サーバーが素通しすると、
+    # 「本番では弾かれるのにローカルでは通る」入力が見つけられない。
+    d = b.get("date")
+    if d and not real_date(d):
+        e.append("存在しない日付")
+    elif d and asks_load(b.get("status")) and d > today_str():
+        e.append("未来の日付は実績にできない")
     if asks_load(b.get("status")):
         try:
             m = float(b.get("minutes"))
@@ -95,7 +112,13 @@ def validate(b):
         if m is None or m < 1 or m > 600:
             e.append("練習時間が不正")
         r = b.get("rpe")
-        if r is None or r == "" or not (0 <= float(r) <= 10):
+        # float() を裸で呼ぶと 'abc' で例外になり、サーバーが応答ゼロバイトで落ちる。
+        # 端末側は「返事が無い」として永久に送信待ちのままになる。
+        try:
+            rf = float(r) if r not in (None, "") else None
+        except (TypeError, ValueError):
+            rf = None
+        if rf is None or not (0 <= rf <= 10):
             e.append("RPEが未入力")
         if b.get("completion") not in COMPLETION:
             e.append("完了度が不正")
@@ -110,7 +133,9 @@ def validate(b):
 def submit(b):
     err = validate(b)
     if err:
-        return {"ok": False, "error": " / ".join(err)}
+        # kind を返さないと、端末側の「捨てるか粘るか」の分岐(app.js)を
+        # ローカル検証で一度も通れない。Code.gs と同じ形で返す。
+        return {"ok": False, "kind": "validation", "error": " / ".join(err)}
     for a in ANSWERS:
         if a["client_id"] == b["client_id"]:
             return {"ok": True, "duplicate": True}

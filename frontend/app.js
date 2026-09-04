@@ -11,6 +11,9 @@
   var flushing = false;     // flush の二重起動止め
   var proxyFor = null;      // 代理入力の相手。1回出したら自動で戻す
   var sending = false;      // 「出す」の二重押し止め
+  var mineKnown = false;    // サーバーから提出状況を読めたか。読めていないあいだ
+                            // 「未提出(赤)」を描くと、全日が赤くなって部員が出し直し、
+                            // 同じ日に2行できる。読めるまでは赤を出さない。
 
   var state = {
     boot: null,        // {roster, menu, calendar, today}
@@ -194,6 +197,15 @@
         if (res && res.ok === false) {
           var r2 = queue();
           var bad = r2[0];
+          /* 混雑(ロックが取れない)は「送れない記録」ではなく「いま順番待ち」。
+             これを試行回数に数えると、練習直後の混雑と iOS のアプリ切り替え
+             (visibilitychange のたびに flush が走る)だけで5回に達し、
+             記録が本人にほぼ見えない箱へ落ちて自動再送も止まる。 */
+          if (res.kind === 'busy') { save(K.queue, r2); paintQueue(); return sent; }
+          /* 端末の時計が進んでいると、サーバーから見て未来日になり検証で弾かれる。
+             これは記録が悪いのではなく時計の問題なので、捨てずに翌日に持ち越す。 */
+          var futureOnly = /未来の日付/.test(String(res.error || ''));
+          if (futureOnly) { save(K.queue, r2); paintQueue(); return sent; }
           var giveUp = (res.kind === 'validation');
           if (!giveUp) {
             bad._tries = (bad._tries || 0) + 1;
@@ -205,7 +217,11 @@
           var fl = failed();
           fl.push({ payload: bad, error: res.error || '', at: new Date().toISOString() });
           save(K.failed, fl);
+          /* 出した印を消す。ここを消さないと、サーバーに1行も入っていない日が
+             カレンダーでは永久に「出した ●」のまま残り、欠測が誰にも見えない。 */
+          unmark(bad);
           console.warn('送れないため保留にしました:', res.error, bad);
+          toast('送れなかった記録が1件あります。設定タブから確かめてください');
           paintQueue();
           return step();
         }
@@ -225,6 +241,24 @@
       throw e;
     });
   }
+  /* 送れなかった記録の印を、カレンダーから取り消す。 */
+  function unmark(payload) {
+    if (!payload || !payload.date) return;
+    var target = payload.action === 'plan' ? state.mine.plans : state.mine.answers;
+    if (target && target[payload.date]) {
+      delete target[payload.date];
+      save(K.mine, state.mine);
+      buildCalendar();
+    }
+  }
+
+  /* まだ送信待ちに残っている日付。サーバーに無くても消してはいけない分。 */
+  function pendingDates() {
+    var set = {};
+    queue().forEach(function (p) { if (p && p.date) set[p.date] = p.action === 'plan' ? 'plans' : 'answers'; });
+    return set;
+  }
+
   function paintQueue() {
     var n = queue().length;
     var e = document.getElementById('queueCount');
@@ -238,6 +272,17 @@
       var fc = document.getElementById('failedCount');
       if (fc) fc.textContent = f + ' 件';
     }
+    /* 設定タブの奥だけに出しても部員は見ない。今日タブの上に出す。 */
+    var uw = document.getElementById('unsentWarn');
+    if (uw) {
+      if (f > 0) {
+        uw.textContent = '送れなかった記録が ' + f + ' 件あります。'
+          + '設定タブの「送れなかった記録」から、もう一度送ってください。';
+        uw.classList.remove('hidden');
+      } else {
+        uw.classList.add('hidden');
+      }
+    }
   }
 
   /* ---------------- 下書き ----------------
@@ -247,6 +292,9 @@
   function drafts() { return load(K.draft, {}); }
   function saveDraft() {
     if (!state.form || !state.date) return;
+    // 代理入力の最中に下書きを触ると、記録係自身の書きかけが相手のフォームへ
+    // 復元され、そのまま相手のIDで出てしまう。代理中は下書きを一切扱わない。
+    if (proxyFor) return;
     var d = drafts();
     d[state.date] = {
       form: state.form,
@@ -270,6 +318,8 @@
     paintDraftNote();
   }
   function applyDraft(date) {
+    // 代理入力中に自分の下書きを相手のフォームへ流し込まない。
+    if (proxyFor) return false;
     var d = drafts()[date];
     if (!d || !d.form) return false;
     state.form = d.form;
@@ -429,7 +479,8 @@
       /* 予定表がおかしいときはサーバーが教えてくれる。主務が気づけるように出す。
          これが出ているあいだ、オフ日が「ふつうの練習」に化けている可能性がある。 */
       if (r.calendarWarn) {
-        var cw = document.getElementById('storageWarn');
+        // 保存できない警告と同じ枠を使うと、あとから来たこちらが先の警告を消す。
+        var cw = document.getElementById('calWarn');
         if (cw) {
           cw.textContent = '予定表: ' + r.calendarWarn.message;
           cw.classList.remove('hidden');
@@ -461,7 +512,10 @@
       console.warn(e);
     });
 
+    // つながったら、送信待ちを流すだけでなく提出状況も取り直す。
+    // 取り直さないと、一度読めなかった端末は次に開き直すまで全日が赤いまま。
     window.addEventListener('online', function () {
+      if (state.me) refreshMine();
       flush();
       // 電波が戻ったら時計も見直す。起動時1回きりだと直しても警告が消えない
       api('bootstrap').then(function (r) {
@@ -543,7 +597,9 @@
   /* ---------------- 本体 ---------------- */
   function start() {
     document.getElementById('app').classList.remove('hidden');
-    document.getElementById('meId').textContent = state.me.id;
+    // IDだけだと、部室の共用端末で前の人のままでも気づけない。名前を先に出す。
+    document.getElementById('meId').textContent =
+      (state.me.name ? state.me.name + '（' + state.me.id + '）' : state.me.id);
     document.getElementById('setMe').textContent = state.me.name + ' ／ ' + state.me.grade + '年' + state.me.cls + '組';
     document.getElementById('appVer').textContent = 'RowLog v' + CFG.VERSION;
     buildRpe();
@@ -562,16 +618,37 @@
       if (r && r.ok) {
         var merged = { answers: {}, plans: {} };
         var old = state.mine || { answers: {}, plans: {} };
-        // 先に手元の分、次にサーバーの分。サーバーを正とする
-        Object.keys(old.answers || {}).forEach(function (k) { merged.answers[k] = old.answers[k]; });
-        Object.keys(old.plans || {}).forEach(function (k) { merged.plans[k] = old.plans[k]; });
+        var pend = pendingDates();
+        /* 窓(from〜to)の中はサーバーを正とする。以前はここが和集合だったので、
+           送信に失敗して1行も入っていない日が端末側に残り続け、カレンダーは
+           永久に「出した ●」のままだった。窓の外(古い月)は消さない。 */
+        function keepOld(bucket, k) {
+          if (pend[k] === bucket) return true;          // まだ送信待ち = 消さない
+          return k < from || k > to;                    // 窓の外 = サーバーは知らない
+        }
+        Object.keys(old.answers || {}).forEach(function (k) {
+          if (keepOld('answers', k)) merged.answers[k] = old.answers[k];
+        });
+        Object.keys(old.plans || {}).forEach(function (k) {
+          if (keepOld('plans', k)) merged.plans[k] = old.plans[k];
+        });
         Object.keys(r.answers || {}).forEach(function (k) { merged.answers[k] = r.answers[k]; });
         Object.keys(r.plans || {}).forEach(function (k) { merged.plans[k] = r.plans[k]; });
         state.mine = merged;
         save(K.mine, state.mine);
+        mineKnown = true;
+        var mw0 = document.getElementById('mineWarn');
+        if (mw0) mw0.classList.add('hidden');
         buildCalendar();
       }
-    }).catch(function () {});
+    }).catch(function () {
+      /* 握り潰すと、提出済みの日まで赤(未提出)で描かれる。部員はそれを見て
+         出し直し、同じ日に2行できる。読めていないことをそのまま出す。 */
+      mineKnown = false;
+      var mw = document.getElementById('mineWarn');
+      if (mw) mw.classList.remove('hidden');
+      buildCalendar();
+    });
   }
 
   function addDaysStr(ymd, n) {
@@ -783,10 +860,11 @@
       var inRange = ds >= (CFG.COLLECT_FROM || '0000-01-01');
       if (ans) { mark = '●'; cls = 'done'; }
       else if (p.kind === 'オフ') { mark = '−'; cls = 'rest'; }
-      else if (ds < t && inRange) { mark = '●'; cls = 'miss'; }
+      else if (ds < t && inRange && mineKnown) { mark = '●'; cls = 'miss'; }
       else if (state.mine.plans[ds]) { mark = '◇'; cls = 'rest'; }
       // 収集開始日より前は数えない（アプリが無かった日を未提出にしないため）
-      var counted = p.kind !== 'オフ' && ds <= t && ds >= (CFG.COLLECT_FROM || '0000-01-01');
+      // 今日はまだ締切前。数えると、練習前の朝から「未提出 1」が出て理由が分からない。
+      var counted = p.kind !== 'オフ' && ds < t && ds >= (CFG.COLLECT_FROM || '0000-01-01');
       if (counted) {
         stat.practice++;
         if (ans) stat.done++; else stat.miss++;
@@ -888,15 +966,21 @@
     }
 
     lockSubmit();
+    var wasProxy = !!proxyFor;
     if (proxyFor) endProxy(true);   // 使い切り。戻し忘れを起こさせない
-    // 送信の成否を待たせない。キューに入れた時点で完了扱いにする。
-    if (state.planMode) {
-      state.mine.plans[state.date] = { block_ids: payload.block_ids, note: payload.note };
-    } else {
-      state.mine.answers[state.date] = { status: payload.status, srpe: L.srpe(payload.minutes, payload.rpe) };
+    /* 代理入力のときに自分の印を書くと、記録係本人のカレンダーがその日
+       「提出済み」になり、本人の記録が欠測する。書くのは自分の分だけ。 */
+    if (!wasProxy) {
+      // 送信の成否を待たせない。キューに入れた時点で完了扱いにする。
+      // ただし送れなかったときは unmark() でこの印を取り消す。
+      if (state.planMode) {
+        state.mine.plans[state.date] = { block_ids: payload.block_ids, note: payload.note };
+      } else {
+        state.mine.answers[state.date] = { status: payload.status, srpe: L.srpe(payload.minutes, payload.rpe) };
+      }
+      save(K.mine, state.mine);
+      clearDraft(state.date);
     }
-    save(K.mine, state.mine);
-    clearDraft(state.date);
     buildCalendar();
 
     /* オフラインのときに成功と同じ文言を出すと、艇庫で送れていないことに
@@ -971,7 +1055,12 @@
   /* ---------------- イベント ---------------- */
   function wire() {
     document.getElementById('tabs').addEventListener('click', function (e) {
-      var t = e.target.closest('button'); if (t) showTab(t.dataset.p);
+      var t = e.target.closest('button'); if (!t) return;
+      /* 「今日」タブは日付も今日に戻す。カレンダーで別の日を開いたまま
+         このタブへ戻ると、見出しだけ過去の日付のまま今日の練習を入力でき、
+         別の日の記録として入ってしまう。 */
+      if (t.dataset.p === 'today' && !proxyFor && state.date !== todayStr()) openDate(todayStr());
+      showTab(t.dataset.p);
     });
     ['status', 'completion', 'didErg'].forEach(function (id) {
       document.getElementById(id).addEventListener('click', function (e) {
@@ -1036,7 +1125,14 @@
 
     document.getElementById('changeMe').onclick = function () {
       if (proxyFor) { toast('先に代理入力をやめてください'); return; }
+      /* 提出済みの日と下書きを消さないと、次の人のカレンダーに前の人の●が出て
+         その日を出さなくていいと誤認する。書きかけも次の人のIDで出てしまう。
+         部室の共用端末で必ず起きる。 */
       localStorage.removeItem(K.me);
+      localStorage.removeItem(K.mine);
+      localStorage.removeItem(K.draft);
+      state.mine = { answers: {}, plans: {} };
+      mineKnown = false;
       state.me = null;
       document.getElementById('app').classList.add('hidden');
       showSetup();
@@ -1052,7 +1148,9 @@
       var e = document.getElementById(id);
       if (e) e.addEventListener('input', function () {
         if (id === 'note') paintNoteCount();
-        if (id === 'minutes') clearErrors();
+        // 練習時間だけでなく、レートや距離を直したときもエラー表示を消す。
+        // 直して送れているのに「出せません」が残ると、本当のエラーも読まれなくなる。
+        clearErrors();
         saveDraft();
       });
     });

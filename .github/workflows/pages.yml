@@ -22,6 +22,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # 検査を通さずに配れてしまうと、ALL PASS は手元で走らせた人しか担保しない。
+      # 配信バージョンの上げ忘れは、ここで止めるのが一番確実。
+      - name: 受け入れ検査
+        run: python3 verify.py
       - name: .nojekyll を置く
         run: touch frontend/.nojekyll
       - uses: actions/configure-pages@v5

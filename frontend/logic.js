@@ -29,9 +29,30 @@
   }
 
   /* sRPE負荷 = 時間(分) × RPE。欠席・休養は null（0にしない） */
+  /* 数として扱ってよい値か。空・空白・真偽値・配列を Number() に通すと
+     0 や 1 に化けて、「空」と「0」が混ざる。規約3(欠席・休養は空)の要。 */
+  /* 2026-02-30 のような「形は正しいが存在しない日」を弾く。
+     サーバーだけが弾くと、検証エラーとして手元から捨てられて記録が消える。 */
+  function isRealDate(ymd) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || ''));
+    if (!m) return false;
+    var y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+    if (mo < 1 || mo > 12 || d < 1) return false;
+    var dt = new Date(y, mo - 1, d);
+    return dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d;
+  }
+
+  function isNumericLike(v) {
+    if (typeof v === 'number') return isFinite(v);
+    if (typeof v !== 'string') return false;
+    return /^-?\d+(\.\d+)?$/.test(v.trim()) && v.trim() !== '';
+  }
+
   function srpe(minutes, rpe) {
-    if (minutes === null || minutes === undefined || minutes === '') return null;
-    if (rpe === null || rpe === undefined || rpe === '') return null;
+    /* 空判定を「null / undefined / '' の3つ」で書くと、'　'(全角空白) や
+       false や [] が Number() で 0 に化けて通り、欠席でもないのに srpe 0 が
+       確定する。数として読める形だけを通す。 */
+    if (!isNumericLike(minutes) || !isNumericLike(rpe)) return null;
     var m = Number(minutes), r = Number(rpe);
     if (!isFinite(m) || !isFinite(r)) return null;
     return m * r;
@@ -81,6 +102,9 @@
   function inRange(name, v) {
     var r = RANGE[name];
     if (!r) return null;
+    /* Number('') も Number(null) も Number([]) も 0 になる。素通しすると
+       「未入力」が「0」として範囲に収まってしまう。 */
+    if (!isNumericLike(v)) return false;
     var n = Number(v);
     if (!isFinite(n)) return false;
     return n >= r[0] && n <= r[1];
@@ -100,11 +124,13 @@
     var e = [];
     if (!rec.research_id) e.push('研究用IDが無い');
     if (!rec.date || !/^\d{4}-\d{2}-\d{2}$/.test(rec.date)) e.push('日付の形式が不正');
+    else if (!isRealDate(rec.date)) e.push('存在しない日付');
     if (STATUS.indexOf(rec.status) < 0) e.push('参加状態が不正');
     if (asksLoad(rec.status)) {
       if (!inRange('minutes', rec.minutes)) e.push('練習時間が不正');
       else if (Number(rec.minutes) % 1 !== 0) e.push('練習時間は整数で入れてください');
-      if (rec.rpe === null || rec.rpe === undefined || rec.rpe === '' || !inRange('rpe', rec.rpe)) e.push('RPEが未入力');
+      if (!inRange('rpe', rec.rpe)) e.push('RPEが未入力');
+      else if (Number(rec.rpe) % 1 !== 0) e.push('RPEは整数で入れてください');
       if (COMPLETION.indexOf(rec.completion) < 0) e.push('完了度が不正');
     } else {
       /* 欠席・休養では空にする。0を入れない */
@@ -169,6 +195,8 @@
     ergWarnings: ergWarnings,
     cutText: cutText,
     inRange: inRange,
+    isRealDate: isRealDate,
+    isNumericLike: isNumericLike,
     validate: validate
   };
 

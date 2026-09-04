@@ -174,6 +174,26 @@ if idx:
     add(len(tags) == 4 and ver is not None and all(t == ver for t in tags),
         "[B] js/css に ?v= が付き config.js の VERSION と一致",
         "VERSION=" + str(ver) + " tags=" + ",".join(tags))
+    # ここまでは index.html しか見ていなかった。sw.js の VERSION と、そこに並ぶ
+    # ?v= を上げ忘れると、古いキャッシュ名が生き残って古い js を配り続ける。
+    sw = read("frontend/sw.js") or ""
+    sv = re.search(r"VERSION\s*=\s*'([^']+)'", sw)
+    sw_ver = sv.group(1) if sv else None
+    sw_tags = re.findall(r"\?v=([0-9][^'\"]*)", sw)
+    # sw.js の VERSION はキャッシュ名を兼ねていて 'rowlog-1.3.2' の形。末尾を見る。
+    add(sw_ver is not None and ver is not None and sw_ver.endswith(ver)
+        and sw_tags and all(t == ver for t in sw_tags),
+        "[B] sw.js の VERSION と ?v= が config.js の VERSION と一致",
+        "sw VERSION=" + str(sw_ver) + " tags=" + ",".join(sw_tags))
+    man_tags = re.findall(r'manifest\.webmanifest\?v=([^"]+)"', idx)
+    add(not man_tags or all(t == ver for t in man_tags),
+        "[B] manifest の ?v= も VERSION と一致",
+        "tags=" + ",".join(man_tags))
+    # 画面そのもの以外の要求に index.html を返すと、ブラウザがHTMLをJSとして
+    # 読んで真っ白になる。オフラインで一番起きやすい壊れ方。
+    add("if (isShell) return caches.match('./index.html')" in sw
+        or "isShell ? caches.match" in sw,
+        "[B] sw.js は画面以外に index.html を返さない")
     add("env(safe-area-inset-top" in (read("frontend/style.css") or ""),
         "[B] 上部が safe-area を考慮している")
 

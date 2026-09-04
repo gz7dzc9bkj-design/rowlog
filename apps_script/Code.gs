@@ -283,6 +283,9 @@ function savePlan(body) {
   if (!body.research_id) return { ok: false, kind: 'validation', error: 'research_id が無い' };
   var d = dateStr(body.date);
   if (!d) return { ok: false, kind: 'validation', error: '日付の形式が不正' };
+  // 予定は「今日より後」だけ。過ぎた日に予定を置けると、実績と混ざって
+  // どちらが本当か分からなくなる（DESIGN §2）。
+  if (d < todayStr()) return { ok: false, kind: 'validation', error: '過ぎた日には予定を置けない' };
   if (!body.client_id) return { ok: false, kind: 'validation', error: 'client_id が無い' };
 
   var lock = LockService.getScriptLock();

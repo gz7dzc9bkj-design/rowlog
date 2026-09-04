@@ -7,15 +7,15 @@
    実際に踏んでいるので、通信できるときは必ず新しいものを取りに行き、
    落ちたときだけ最後に取れたものを返す（network-first）。 */
 
-var VERSION = 'rowlog-1.3.1';
+var VERSION = 'rowlog-1.3.2';
 var SHELL = [
   './',
   './index.html',
-  './style.css?v=1.3.1',
-  './config.js?v=1.3.1',
-  './logic.js?v=1.3.1',
-  './app.js?v=1.3.1',
-  './manifest.webmanifest?v=1.3.1',
+  './style.css?v=1.3.2',
+  './config.js?v=1.3.2',
+  './logic.js?v=1.3.2',
+  './app.js?v=1.3.2',
+  './manifest.webmanifest?v=1.3.2',
   './icon-180.png',
   './icon-192.png',
   './icon-512.png'
@@ -66,7 +66,13 @@ self.addEventListener('fetch', function (e) {
       return res;
     }).catch(function () {
       return caches.match(req).then(function (hit) {
-        return hit || caches.match('./index.html');
+        if (hit) return hit;
+        /* index.html を返してよいのは画面そのものを取りに来たときだけ。
+           js や css の要求にHTMLを返すと、ブラウザがそれをJSとして読んで
+           SyntaxError で真っ白になる。配信直後は ?v= が変わってキャッシュに
+           当たらないので、この経路に落ちやすい。 */
+        if (isShell) return caches.match('./index.html');
+        return Response.error();
       });
     })
   );
