@@ -431,7 +431,7 @@ button.tag.pick[aria-pressed="true"] {
   background: #1b202799;
   display: flex; align-items: flex-end;
 }
-.sheetIn {
+.sheetIn, .sheetin {
   width: 100%; max-height: 82svh;
   background: var(--bg);
   border-radius: var(--r) var(--r) 0 0;
@@ -439,14 +439,14 @@ button.tag.pick[aria-pressed="true"] {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
-.sheetHd {
+.sheetHd, .sheethead {
   position: sticky; top: 0;
   display: flex; align-items: center; justify-content: space-between;
   padding: 16px 0 12px; margin-bottom: 4px;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
 }
-.sheetHd b { font-size: 16px; }
+.sheetHd b, .sheethead b { font-size: 16px; }
 #pickerClose {
   min-height: 38px; padding: 8px 14px;
   background: var(--card); color: var(--primary);
