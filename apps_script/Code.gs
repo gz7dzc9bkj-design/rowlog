@@ -336,6 +336,16 @@ function savePlan(body) {
  *
  * 読み出す action は作らない。体重を無認証のGETに載せないため。
  */
+/* シートから読んだ月を 'YYYY-MM' にそろえる。
+   過去に日付として取り込まれてしまった行が混ざっていても正しく突き合わせるため。 */
+function monthKey_(v) {
+  if (v instanceof Date) {
+    var m = v.getMonth() + 1;
+    return v.getFullYear() + '-' + (m < 10 ? '0' : '') + m;
+  }
+  return String(v).trim().slice(0, 7);
+}
+
 function saveMeasure(body) {
   var e = validateMeasure(body);
   if (e.length) return { ok: false, kind: 'validation', error: e.join(' / ') };
@@ -370,7 +380,7 @@ function saveMeasure(body) {
     if (last >= 2) {
       var vals = sh.getRange(2, 1, last - 1, head.length).getValues();
       for (var i = 0; i < vals.length; i++) {
-        if (String(vals[i][1]).trim() === id && String(vals[i][2]).trim() === month) {
+        if (String(vals[i][1]).trim() === id && monthKey_(vals[i][2]) === month) {
           sh.getRange(i + 2, 1, 1, head.length).setValues([row]);
           var r1 = { ok: true, updated: true };
           lock.releaseLock();
@@ -552,6 +562,10 @@ function sheet(def) {
     s.appendRow(def.head);
     s.setFrozenRows(1);
     applyTextFormat_(s, def);
+    /* ここで確定させないと、書式の設定と後続の appendRow が束ねられて
+       順序が入れ替わり、'2026-09' のような値が日付として取り込まれる。
+       そうなると文字列比較が一致せず、上書きのはずが行が増える（実測）。 */
+    SpreadsheetApp.flush();
   }
   return s;
 }
