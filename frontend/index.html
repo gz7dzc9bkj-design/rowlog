@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>RowLog</title>
-<link rel="manifest" href="manifest.webmanifest?v=1.3.2">
+<link rel="manifest" href="manifest.webmanifest?v=1.4.0">
 <meta name="theme-color" content="#f7f8fa">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="RowLog">
 <link rel="apple-touch-icon" href="icon-180.png">
-<link rel="stylesheet" href="style.css?v=1.3.2">
+<link rel="stylesheet" href="style.css?v=1.4.0">
 </head>
 <body>
 
@@ -64,6 +64,10 @@
     <!-- 提出状況を読めていないあいだ、カレンダーの赤(未提出)は当てにならない。 -->
     <div class="warnbar hidden" id="mineWarn">
       提出状況を読み込めていません。カレンダーの「未提出」はまだ当てになりません。
+    </div>
+    <div class="warnbar hidden" id="measureWarn">
+      <span id="measureWarnText"></span>
+      <button type="button" id="measureOpen">入れる</button>
     </div>
     <div class="warnbar hidden" id="storageWarn">
       この端末は保存ができない設定になっています。Safari の設定で
@@ -229,6 +233,10 @@
         <button type="button" class="rowbtn" id="showFailed">中身を見る</button>
       </div>
       <div class="row">
+        <div class="rowmain"><b>身体測定</b><span id="measureRowNote">身長・体重・20分エルゴ</span></div>
+        <button type="button" class="rowbtn" id="measureOpen2">入れる</button>
+      </div>
+      <div class="row">
         <div class="rowmain"><b>このアプリ</b><span id="appVer"></span></div>
       </div>
     </section>
@@ -284,10 +292,39 @@
   </div>
 </div>
 
+<!-- 身体測定 -->
+<div id="measureSheet" class="sheet hidden">
+  <div class="sheetin">
+    <div class="sheethead">
+      <b id="measureTitle">身体測定</b>
+      <button type="button" id="measureClose">閉じる</button>
+    </div>
+    <p class="hint pad">高体連に出す項目です。研究にもそのまま使います。<br><b>正直な値を入れてください。</b>前回の値はわざと出していません。</p>
+    <div class="errbox hidden" id="measureErr"></div>
+    <div class="measurebody">
+      <p class="lbl">性別</p>
+      <div class="seg two" id="measureSex">
+        <button type="button" data-v="男">男</button>
+        <button type="button" data-v="女">女</button>
+      </div>
+      <p class="lbl">身長</p>
+      <div class="field"><input class="num" id="measureHeight" type="number" inputmode="decimal" step="0.1" aria-label="身長" placeholder="175.0"><span class="unit">cm</span></div>
+      <p class="lbl">体重</p>
+      <div class="field"><input class="num" id="measureWeight" type="number" inputmode="decimal" step="0.1" aria-label="体重" placeholder="68.0"><span class="unit">kg</span></div>
+      <p class="lbl">20分エルゴ <span class="opt">（測った月だけ）</span></p>
+      <div class="field"><input class="num" id="measureErg" type="number" inputmode="numeric" step="1" aria-label="20分エルゴの距離" placeholder="5106"><span class="unit">m</span></div>
+      <p class="hint">今月テストをしていなければ、ここは空のままで出してください。</p>
+    </div>
+    <div class="sheetfoot">
+      <button type="button" class="rowbtn" id="measureSubmit">出す</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast hidden"></div>
 
-<script src="config.js?v=1.3.2"></script>
-<script src="logic.js?v=1.3.2"></script>
-<script src="app.js?v=1.3.2"></script>
+<script src="config.js?v=1.4.0"></script>
+<script src="logic.js?v=1.4.0"></script>
+<script src="app.js?v=1.4.0"></script>
 </body>
 </html>

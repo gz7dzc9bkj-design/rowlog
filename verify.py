@@ -134,6 +134,27 @@ else:
     add("Access-Control-Allow-Origin" not in gs,
         "[B] Code.gs に CORS ヘッダを書いていない（text/plain 方式のため不要）")
 
+# B4-2: 測定（身長・体重）を GET で返していないこと
+#       名簿の実名を無認証で返す判断はしたが、体重は別。読み出す action を作らない。
+gs2 = read("apps_script/Code.gs")
+if gs2 is None:
+    add(True, "[B] 測定を GET で返していない", "(未作成)")
+else:
+    i0 = gs2.find("function doGet(")
+    i1 = gs2.find("function doPost(")
+    body = gs2[i0:i1] if (i0 >= 0 and i1 > i0) else ""
+    leaks = [w for w in ("measures", "readMeasure", "測定") if w in body]
+    add(not leaks, "[B] 測定を GET で返していない（体重を無認証で読ませない）",
+        " / ".join(leaks))
+    add("saveMeasure" in gs2, "[B] Code.gs に saveMeasure がある")
+    add("validateMeasure" in gs2, "[B] Code.gs がサーバー側でも測定を検証する")
+
+# B4-3: 測定の提出済みを端末に持つこと
+#       過去データに前回値のコピー疑いが3件ある。読む仕組みを作らないのが担保。
+app2 = read("frontend/app.js")
+if app2 is not None:
+    add("measured:" in app2, "[B] 測定の提出済みは端末に持つ（サーバーから読まない）")
+
 # B5: APIキーがベタ書きされていない
 KEY_PAT = re.compile(r"(AIza[0-9A-Za-z_\-]{30,}|sk-ant-[0-9A-Za-z_\-]{20,}|ghp_[0-9A-Za-z]{30,})")
 leak = []

@@ -41,6 +41,7 @@ MENU = [
 
 ANSWERS = []   # dict の並び
 PLANS = []
+MEASURES = []  # 月1回の身体測定。(research_id, month) で上書きする
 
 
 def real_date(ymd):
@@ -175,6 +176,57 @@ def save_plan(b):
     return {"ok": True, "updated": False}
 
 
+def save_measure(b):
+    e = []
+    if not b.get("research_id"):
+        e.append("research_id が無い")
+    if not b.get("client_id"):
+        e.append("client_id が無い")
+    mo = str(b.get("measured_on", ""))
+    month = str(b.get("month", ""))
+    if not re.match(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$", mo):
+        e.append("測定日の形式が不正")
+    if not re.match(r"^[0-9]{4}-[0-9]{2}$", month):
+        e.append("対象月の形式が不正")
+    elif mo[:7] != month:
+        e.append("測定日と対象月が食い違っている")
+    if str(b.get("sex")) not in ("男", "女"):
+        e.append("性別が不正")
+
+    def rng(v, lo, hi):
+        if v in ("", None) or isinstance(v, bool):
+            return False
+        try:
+            n = float(v)
+        except Exception:
+            return False
+        return lo <= n <= hi
+
+    if not rng(b.get("height_cm"), 140, 210):
+        e.append("身長が範囲外")
+    if not rng(b.get("weight_kg"), 35, 130):
+        e.append("体重が範囲外")
+    erg = b.get("erg20_m")
+    if erg not in ("", None):
+        if not rng(erg, 3000, 7000):
+            e.append("20分エルゴが範囲外")
+        elif float(erg) % 1 != 0:
+            e.append("20分エルゴは整数のみ")
+    if e:
+        return {"ok": False, "kind": "validation", "error": " / ".join(e)}
+
+    row = {"research_id": b["research_id"], "month": month, "measured_on": mo,
+           "sex": b.get("sex"), "grade": b.get("grade"),
+           "height_cm": b.get("height_cm"), "weight_kg": b.get("weight_kg"),
+           "erg20_m": b.get("erg20_m"), "client_id": b["client_id"]}
+    for m in MEASURES:
+        if m["research_id"] == row["research_id"] and m["month"] == row["month"]:
+            m.update(row)
+            return {"ok": True, "updated": True}
+    MEASURES.append(row)
+    return {"ok": True, "updated": False}
+
+
 def mine(rid, lo=None, hi=None):
     if not rid:
         return {"ok": False, "error": "research_id が無い"}
@@ -229,7 +281,7 @@ class H(BaseHTTPRequestHandler):
         elif a == "ping":
             self._send({"ok": True, "app": "RowLog(mock)", "now": datetime.datetime.now().isoformat()})
         elif a == "_dump":
-            self._send({"ok": True, "answers": ANSWERS, "plans": PLANS})
+            self._send({"ok": True, "answers": ANSWERS, "plans": PLANS, "measures": MEASURES})
         else:
             self._send({"ok": False, "error": "不明な action: " + a})
 
@@ -245,6 +297,8 @@ class H(BaseHTTPRequestHandler):
             self._send(submit(b))
         elif a == "plan":
             self._send(save_plan(b))
+        elif a == "measure":
+            self._send(save_measure(b))
         else:
             self._send({"ok": False, "error": "不明な action: " + a})
 

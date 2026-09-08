@@ -29,7 +29,13 @@ var SHEETS = {
      このウェブアプリは誰でも POST できる（text/plain は CORS の単純リクエストなので
      プリフライトが起きず、Apps Script はリクエストヘッダを読めないので送信元を確かめられない）。
      防ぐ代わりに、アプリ経由らしくない書き込みをここに残して主務が気づけるようにする。 */
-  audit:    { name: '監査ログ', head: ['at', 'what', 'research_id', 'date', 'flags', 'client_id', 'app_version'] }
+  audit:    { name: '監査ログ', head: ['at', 'what', 'research_id', 'date', 'flags', 'client_id', 'app_version'] },
+  /* 月1回の身体測定と20分エルゴ。日々の「回答」とは別物なので別シートにする。
+     項目は高体連の提出シート（性別・学年・身長・体重・記録）に合わせてある。
+     **doGet から返さないこと。** 名簿の実名を無認証で返す判断はしたが、
+     体重は別。読むのはスプレッドシートで直接見る。 */
+  measures: { name: '測定',    head: ['submitted_at', 'research_id', 'month', 'measured_on', 'sex', 'grade',
+                                     'height_cm', 'weight_kg', 'erg20_m', 'entered_by', 'client_id', 'app_version'] }
 };
 
 /* 数値と解釈されると壊れる列。スプレッドシートは "30001,90009" を
@@ -43,7 +49,8 @@ var TEXT_COLS = {
              'erg_split', 'erg_machine', 'photo_urls', 'note', 'entered_by',
              'client_id', 'app_version'],
   '予定':    ['research_id', 'date', 'block_ids', 'note', 'client_id'],
-  '監査ログ': ['at', 'what', 'research_id', 'date', 'flags', 'client_id', 'app_version']
+  '監査ログ': ['at', 'what', 'research_id', 'date', 'flags', 'client_id', 'app_version'],
+  '測定':    ['research_id', 'month', 'measured_on', 'sex', 'entered_by', 'client_id', 'app_version']
 };
 
 var STATUS = ['実施', '一部実施', '欠席', '休養'];
@@ -70,8 +77,9 @@ function doPost(e) {
     var body = {};
     if (e && e.postData && e.postData.contents) body = JSON.parse(e.postData.contents);
     var a = body.action || (e && e.parameter && e.parameter.action) || '';
-    if (a === 'submit') return json(submit(body));
-    if (a === 'plan')   return json(savePlan(body));
+    if (a === 'submit')  return json(submit(body));
+    if (a === 'plan')    return json(savePlan(body));
+    if (a === 'measure') return json(saveMeasure(body));
     return json({ ok: false, error: '不明な action: ' + a });
   } catch (err) {
     return json({ ok: false, error: String(err) });
@@ -319,6 +327,72 @@ function savePlan(body) {
   }
 }
 
+/**
+ * 月1回の測定を保存する。同じ (research_id, month) は上書きする。
+ *
+ * 上書きにするのは、打ち間違いを本人が直せるようにするため。
+ * 履歴は要らない（測定値は1か月に1つと決めている）。
+ * 「回答」は追記のみで上書きしない — あちらは実績なので性質が違う。
+ *
+ * 読み出す action は作らない。体重を無認証のGETに載せないため。
+ */
+function saveMeasure(body) {
+  var e = validateMeasure(body);
+  if (e.length) return { ok: false, kind: 'validation', error: e.join(' / ') };
+
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+  } catch (err) {
+    return { ok: false, kind: 'busy', error: '混み合っています。あとで自動的に送り直します' };
+  }
+  try {
+    var sh = sheet(SHEETS.measures);
+    var head = SHEETS.measures.head;
+    var id = String(body.research_id).trim();
+    var month = String(body.month).trim();
+    var row = [
+      nowIso(),
+      id,
+      month,
+      dateStr(body.measured_on),
+      String(body.sex).trim(),
+      numOrBlank(body.grade),
+      numOrBlank(body.height_cm),
+      numOrBlank(body.weight_kg),
+      numOrBlank(body.erg20_m),
+      String(body.entered_by || body.research_id).trim(),
+      String(body.client_id).trim(),
+      String(body.app_version || '')
+    ];
+
+    var last = sh.getLastRow();
+    if (last >= 2) {
+      var vals = sh.getRange(2, 1, last - 1, head.length).getValues();
+      for (var i = 0; i < vals.length; i++) {
+        if (String(vals[i][1]).trim() === id && String(vals[i][2]).trim() === month) {
+          sh.getRange(i + 2, 1, 1, head.length).setValues([row]);
+          var r1 = { ok: true, updated: true };
+          lock.releaseLock();
+          lock = null;
+          logAudit_('measure', { research_id: id, date: month, client_id: body.client_id,
+                                 app_version: body.app_version }, []);
+          return r1;
+        }
+      }
+    }
+    sh.appendRow(row);
+    var r2 = { ok: true, updated: false };
+    lock.releaseLock();
+    lock = null;
+    logAudit_('measure', { research_id: id, date: month, client_id: body.client_id,
+                           app_version: body.app_version }, []);
+    return r2;
+  } finally {
+    if (lock) lock.releaseLock();
+  }
+}
+
 /* ============================ 検証 ============================ */
 
 function asksLoad(status) {
@@ -355,6 +429,36 @@ function validateAnswer(b) {
  * アプリ経由らしくない書き込みを見分ける。シートは一切読まないので速い。
  * 弾かない。記録するだけ。誤検知で本物の提出を落とすほうが害が大きい。
  */
+/* 測定の検証。frontend/logic.js の validateMeasure と同じ規則を独立に持つ。
+   フロントを迂回して直接 POST されても通さないため。 */
+function validateMeasure(b) {
+  var e = [];
+  if (!b || !b.research_id) e.push('research_id が無い');
+  if (!b.client_id) e.push('client_id が無い');
+  var mo = dateStr(b && b.measured_on);
+  if (!mo) e.push('測定日の形式が不正');
+  if (!b || !/^\d{4}-\d{2}$/.test(String(b.month || ''))) e.push('対象月の形式が不正');
+  else if (mo && mo.slice(0, 7) !== String(b.month)) e.push('測定日と対象月が食い違っている');
+  if (['男', '女'].indexOf(String(b && b.sex)) < 0) e.push('性別が不正');
+  if (!numInRange_(b && b.height_cm, 140, 210)) e.push('身長が範囲外');
+  if (!numInRange_(b && b.weight_kg, 35, 130)) e.push('体重が範囲外');
+  var erg = b && b.erg20_m;
+  if (erg !== '' && erg !== null && erg !== undefined) {
+    if (!numInRange_(erg, 3000, 7000)) e.push('20分エルゴが範囲外');
+    else if (Number(erg) % 1 !== 0) e.push('20分エルゴは整数のみ');
+  }
+  return e;
+}
+
+/* Number('') も Number(null) も 0 になる。素通しすると未入力が 0 として通る。 */
+function numInRange_(v, lo, hi) {
+  if (v === '' || v === null || v === undefined) return false;
+  if (typeof v === 'boolean') return false;
+  var n = Number(v);
+  if (!isFinite(n)) return false;
+  return n >= lo && n <= hi;
+}
+
 function auditFlags_(b, what) {
   var f = [];
   b = b || {};

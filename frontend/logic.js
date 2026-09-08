@@ -96,7 +96,12 @@
     splitSec: [70, 180],   // 1:10 〜 3:00
     rpe: [0, 10],
     minutes: [1, 600],
-    drag: [50, 250]
+    drag: [50, 250],
+    /* 体格と20分エルゴ。打ち間違いを捕まえるための幅で、狭くしすぎない。
+       高体連提出シートの実データ（2025-11・慶應20名）の範囲を含む。 */
+    height_cm: [140, 210],
+    weight_kg: [35, 130],
+    erg20_m: [3000, 7000]
   };
 
   function inRange(name, v) {
@@ -180,6 +185,50 @@
     return w;
   }
 
+  /* ---------------- 測定（身長・体重・20分エルゴ） ----------------
+     日々の提出とは別物。月に1回、選手が自分で入れる。
+     高体連の提出シートの項目（性別・学年・身長・体重・記録）に合わせてある。
+
+     **前回値を画面に出さないこと。** 過去の提出データに、前回値をそのまま
+     コピーして出した疑いが3件ある（連続する波で記録が完全に同一）。
+     見せると同じことが起きる。 */
+
+  var SEX = ['男', '女'];
+
+  /* '2026-09-15' -> '2026-09'。読めなければ null */
+  function monthOf(ymd) {
+    if (!isRealDate(ymd)) return null;
+    return String(ymd).slice(0, 7);
+  }
+
+  /* その月は測定を出す月か。months は ['2026-09', ...] */
+  function isMeasureMonth(ymd, months) {
+    var m = monthOf(ymd);
+    if (!m || !months || !months.length) return false;
+    return months.indexOf(m) >= 0;
+  }
+
+  /* 身長・体重は必須。20分エルゴはテストがあった月だけなので任意。
+     測っていない月に0を入れさせない（規約3と同じ理由）。 */
+  function validateMeasure(rec) {
+    var e = [];
+    if (!rec.research_id) e.push('研究用IDが無い');
+    if (!rec.measured_on || !isRealDate(rec.measured_on)) e.push('測定日の形式が不正');
+    if (!rec.month || !/^\d{4}-\d{2}$/.test(rec.month)) e.push('対象月の形式が不正');
+    else if (rec.measured_on && monthOf(rec.measured_on) !== rec.month) {
+      e.push('測定日と対象月が食い違っている');
+    }
+    if (SEX.indexOf(rec.sex) < 0) e.push('性別が未選択');
+    if (!inRange('height_cm', rec.height_cm)) e.push('身長が 140〜210cm の外です');
+    if (!inRange('weight_kg', rec.weight_kg)) e.push('体重が 35〜130kg の外です');
+    if (rec.erg20_m !== '' && rec.erg20_m !== null && rec.erg20_m !== undefined) {
+      if (!inRange('erg20_m', rec.erg20_m)) e.push('20分エルゴが 3000〜7000m の外です');
+      else if (Number(rec.erg20_m) % 1 !== 0) e.push('20分エルゴは整数で入れてください');
+    }
+    if (!rec.client_id) e.push('client_idが無い');
+    return e;
+  }
+
   var api = {
     RPE_QUESTION: RPE_QUESTION,
     RPE_LABELS: RPE_LABELS,
@@ -197,7 +246,11 @@
     inRange: inRange,
     isRealDate: isRealDate,
     isNumericLike: isNumericLike,
-    validate: validate
+    validate: validate,
+    SEX: SEX,
+    monthOf: monthOf,
+    isMeasureMonth: isMeasureMonth,
+    validateMeasure: validateMeasure
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -480,3 +480,9 @@ button.tag.pick[aria-pressed="true"] {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* 身体測定シート */
+.measurebody { padding: 0 16px 4px; }
+.measurebody .lbl { margin: 14px 0 6px; }
+.measurebody .field { margin-bottom: 2px; }
+.measurebody .hint { margin-top: 8px; }

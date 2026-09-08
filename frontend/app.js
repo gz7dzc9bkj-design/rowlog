@@ -5,7 +5,10 @@
   var L = window.RowLogLogic;
   var CFG = window.ROWLOG_CONFIG;
   var K = { me: 'rowlog.me', boot: 'rowlog.boot', queue: 'rowlog.queue', mine: 'rowlog.mine',
-            draft: 'rowlog.draft', failed: 'rowlog.failed' };
+            draft: 'rowlog.draft', failed: 'rowlog.failed',
+            /* 測定は読み出しAPIを作らない（体重を無認証のGETに載せないため）。
+               「その月は出したか」と性別だけ端末に覚えておく。 */
+            measured: 'rowlog.measured', sex: 'rowlog.sex' };
   var MAX_TRIES = 5;        // これを超えたら諦めて「送れなかった」箱に移す
   var MAX_QUEUE = 120;      // 送信待ちの上限。これ以上は端末の保存を圧迫する
   var flushing = false;     // flush の二重起動止め
@@ -605,6 +608,7 @@
     buildRpe();
     openDate(todayStr());
     buildCalendar();
+    paintMeasure();
   }
 
   /* サーバーの既定は「今日の前後45日」。収集期間は9/1〜10月下旬の約61日あるので、
@@ -1045,6 +1049,140 @@
     c.classList.toggle('over', n > 200);
   }
 
+  /* ---------------- 身体測定（月1回） ----------------
+
+     日々の提出とは別の導線にする。今日タブの案内バーと、設定タブの行から開く。
+     タブは増やさない（毎日の入力の邪魔になる）。
+
+     **前回値を出さない。** 過去の提出データに前回値のコピー疑いが3件ある。
+     見せると同じことが起きるので、サーバーから読む仕組み自体を作っていない。 */
+
+  var measureSex = null;   // 選択中の性別
+
+  function measureMonths() { return (CFG && CFG.MEASURE_MONTHS) || []; }
+
+  /* 今日が属する測定月。測定月でなければ null */
+  function currentMeasureMonth() {
+    var today = todayStr();
+    if (!L.isMeasureMonth(today, measureMonths())) return null;
+    return L.monthOf(today);
+  }
+
+  function measuredMonths() { return load(K.measured, []); }
+
+  function measureDone(month) {
+    return measuredMonths().indexOf(month) >= 0;
+  }
+
+  function markMeasured(month) {
+    var a = measuredMonths();
+    if (a.indexOf(month) < 0) { a.push(month); save(K.measured, a); }
+  }
+
+  /* 今日タブの案内バー。測定月で、まだ出していないときだけ出す。 */
+  function paintMeasure() {
+    var bar = document.getElementById('measureWarn');
+    var row = document.getElementById('measureRowNote');
+    if (!bar) return;
+    var month = currentMeasureMonth();
+    var show = !!month && !measureDone(month) && !!state.me;
+    if (show) {
+      var mm = Number(month.slice(5, 7));
+      document.getElementById('measureWarnText').textContent =
+        mm + '月の身体測定がまだです（身長・体重）';
+      bar.classList.remove('hidden');
+    } else {
+      bar.classList.add('hidden');
+    }
+    if (row) {
+      if (!month) row.textContent = '身長・体重・20分エルゴ（いまは測定月ではありません）';
+      else if (measureDone(month)) row.textContent = Number(month.slice(5, 7)) + '月分は提出済み。直せます';
+      else row.textContent = Number(month.slice(5, 7)) + '月分がまだです';
+    }
+  }
+
+  function openMeasure() {
+    var month = currentMeasureMonth();
+    var sheet = document.getElementById('measureSheet');
+    if (!sheet) return;
+    if (!month) {
+      toast('いまは測定月ではありません');
+      return;
+    }
+    document.getElementById('measureTitle').textContent =
+      Number(month.slice(5, 7)) + '月の身体測定';
+    /* 値は毎回空から。前回値も、さっき入れた値も出さない。 */
+    document.getElementById('measureHeight').value = '';
+    document.getElementById('measureWeight').value = '';
+    document.getElementById('measureErg').value = '';
+    document.getElementById('measureErr').classList.add('hidden');
+    measureSex = load(K.sex, null);   // 性別だけは変わらないので覚えておく
+    paintMeasureSex();
+    sheet.classList.remove('hidden');
+  }
+
+  function closeMeasure() {
+    var sheet = document.getElementById('measureSheet');
+    if (sheet) sheet.classList.add('hidden');
+  }
+
+  function paintMeasureSex() {
+    var seg = document.getElementById('measureSex');
+    if (!seg) return;
+    Array.prototype.forEach.call(seg.querySelectorAll('button'), function (b) {
+      var on = b.getAttribute('data-v') === measureSex;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+
+  function measureError(msgs) {
+    var box = document.getElementById('measureErr');
+    if (!box) return;
+    if (!msgs || !msgs.length) { box.classList.add('hidden'); return; }
+    box.textContent = msgs.join(' / ');
+    box.classList.remove('hidden');
+  }
+
+  function submitMeasure() {
+    var month = currentMeasureMonth();
+    if (!month) { toast('いまは測定月ではありません'); return; }
+    var who = whoFor();
+    if (!who) { toast('先に自分を選んでください'); return; }
+
+    var ergRaw = document.getElementById('measureErg').value.trim();
+    var rec = {
+      action: 'measure',
+      research_id: who.id,
+      month: month,
+      measured_on: todayStr(),
+      sex: measureSex,
+      grade: who.grade,
+      height_cm: document.getElementById('measureHeight').value.trim(),
+      weight_kg: document.getElementById('measureWeight').value.trim(),
+      /* 測っていない月は空のまま送る。0を入れない（規約3と同じ理由）。 */
+      erg20_m: ergRaw === '' ? '' : ergRaw,
+      entered_by: (state.me && state.me.id) || who.id,
+      client_id: uuid(),
+      app_version: CFG.VERSION
+    };
+
+    var errs = L.validateMeasure(rec);
+    if (errs.length) { measureError(errs); return; }
+    measureError([]);
+
+    if (measureSex) save(K.sex, measureSex);
+    if (!enqueue(rec)) {
+      toast('この端末に保存できませんでした');
+      return;
+    }
+    markMeasured(month);
+    closeMeasure();
+    paintMeasure();
+    toast(Number(month.slice(5, 7)) + '月分を出しました');
+    flush();
+  }
+
   function toast(msg) {
     var t = document.getElementById('toast');
     t.textContent = msg;
@@ -1104,6 +1242,25 @@
     document.getElementById('failedClose').onclick = function () {
       document.getElementById('failedSheet').classList.add('hidden');
     };
+
+    /* 身体測定。今日タブの案内バーと設定タブの行、どちらからでも開ける */
+    var mOpen = document.getElementById('measureOpen');
+    if (mOpen) mOpen.onclick = openMeasure;
+    var mOpen2 = document.getElementById('measureOpen2');
+    if (mOpen2) mOpen2.onclick = openMeasure;
+    var mClose = document.getElementById('measureClose');
+    if (mClose) mClose.onclick = closeMeasure;
+    var mSeg = document.getElementById('measureSex');
+    if (mSeg) {
+      mSeg.onclick = function (ev) {
+        var b = ev.target.closest('button[data-v]');
+        if (!b) return;
+        measureSex = b.getAttribute('data-v');
+        paintMeasureSex();
+      };
+    }
+    var mSubmit = document.getElementById('measureSubmit');
+    if (mSubmit) mSubmit.onclick = submitMeasure;
     document.getElementById('failedRetry').onclick = function () {
       var fl = failed();
       if (!fl.length) return;

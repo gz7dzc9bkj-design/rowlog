@@ -102,6 +102,53 @@ eq('20分エルゴの実データ(5150m/1:56.5/rate26/DF125)に警告なし',
   eq('2000m/1:45.0 は 7分00秒', human(L.impliedSeconds(2000, '1:45.0')), '7分00秒');
 })();
 
+/* ---------------- 測定（身長・体重・20分エルゴ） ---------------- */
+
+eq('SEX の2値', L.SEX, ['男', '女']);
+eq('monthOf', L.monthOf('2026-09-15'), '2026-09');
+eq('monthOf は存在しない日を弾く', L.monthOf('2026-02-30'), null);
+eq('monthOf("") は null', L.monthOf(''), null);
+
+ok('9月は測定月', L.isMeasureMonth('2026-09-15', ['2026-09', '2026-10', '2026-11']));
+ok('12月は測定月でない', !L.isMeasureMonth('2026-12-01', ['2026-09', '2026-10', '2026-11']));
+ok('測定月が空なら常に false', !L.isMeasureMonth('2026-09-15', []));
+
+var mBase = {
+  research_id: 'C22', measured_on: '2026-09-15', month: '2026-09',
+  sex: '男', height_cm: 175, weight_kg: 68, client_id: 'x'
+};
+function m(over) {
+  var o = {}, k;
+  for (k in mBase) o[k] = mBase[k];
+  for (k in (over || {})) o[k] = over[k];
+  return o;
+}
+
+eq('測定: 身長体重だけで通る（エルゴは任意）', L.validateMeasure(m()), []);
+eq('測定: エルゴ入りでも通る', L.validateMeasure(m({ erg20_m: 5106 })), []);
+eq('測定: エルゴが空文字でも通る', L.validateMeasure(m({ erg20_m: '' })), []);
+eq('測定: エルゴが null でも通る', L.validateMeasure(m({ erg20_m: null })), []);
+
+ok('測定: 身長が無いと弾く', L.validateMeasure(m({ height_cm: '' })).length > 0);
+ok('測定: 体重が無いと弾く', L.validateMeasure(m({ weight_kg: '' })).length > 0);
+ok('測定: 性別が無いと弾く', L.validateMeasure(m({ sex: '' })).length > 0);
+ok('測定: 身長 120cm は弾く', L.validateMeasure(m({ height_cm: 120 })).length > 0);
+ok('測定: 体重 200kg は弾く', L.validateMeasure(m({ weight_kg: 200 })).length > 0);
+ok('測定: エルゴ 500m は弾く', L.validateMeasure(m({ erg20_m: 500 })).length > 0);
+ok('測定: エルゴ 5106.5m は弾く（整数のみ）', L.validateMeasure(m({ erg20_m: 5106.5 })).length > 0);
+ok('測定: 測定日と対象月の食い違いを弾く', L.validateMeasure(m({ month: '2026-10' })).length > 0);
+ok('測定: 存在しない測定日を弾く', L.validateMeasure(m({ measured_on: '2026-02-30', month: '2026-02' })).length > 0);
+ok('測定: client_id が無いと弾く', L.validateMeasure(m({ client_id: '' })).length > 0);
+
+/* 実データの範囲を通すこと。2025-11 高体連提出（慶應20名）の実測が入る幅にする。
+   狭くすると本物の記録が弾かれる。 */
+eq('測定: 実データ 5446m が通る', L.validateMeasure(m({ erg20_m: 5446 })), []);
+eq('測定: 実データ 4420m が通る', L.validateMeasure(m({ erg20_m: 4420 })), []);
+
+/* 0 を入れさせない。空と 0 が混ざると解析が壊れる（規約3と同じ理由） */
+ok('測定: エルゴ 0 は弾く', L.validateMeasure(m({ erg20_m: 0 })).length > 0);
+ok('測定: 体重 0 は弾く', L.validateMeasure(m({ weight_kg: 0 })).length > 0);
+
 /* 質問文が凍結されていること */
 eq('RPE_QUESTION', L.RPE_QUESTION, '今日の練習全体は、どのくらいきつかったですか');
 eq('参加状態の4値', L.STATUS, ['実施', '一部実施', '欠席', '休養']);
